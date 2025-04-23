@@ -1,0 +1,187 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Playing Card Suit Detector</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .container {
+            background-color: #f9f9f9;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .result-container {
+            margin-top: 20px;
+            display: none;
+        }
+        .upload-form {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #preview {
+            max-width: 300px;
+            max-height: 300px;
+            margin: 20px 0;
+            display: none;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        .prediction {
+            font-weight: bold;
+            font-size: 24px;
+            color: #2c3e50;
+        }
+        .confidence {
+            color: #7f8c8d;
+        }
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        #all-probabilities {
+            margin-top: 20px;
+        }
+        .probability-bar {
+            height: 20px;
+            background-color: #3498db;
+            margin-bottom: 5px;
+            border-radius: 3px;
+        }
+        .probability-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Playing Card Suit Detector</h1>
+    <div class="container">
+        <div class="upload-form">
+            <p>Upload an image of a playing card to determine its suit.</p>
+            <input type="file" id="imageUpload" accept="image/*">
+            <img id="preview" src="#" alt="Image preview">
+            <button id="predictBtn">Predict Suit</button>
+        </div>
+        <div class="loader" id="loader"></div>
+        <div class="result-container" id="resultContainer">
+            <h2>Result:</h2>
+            <p>The card is: <span class="prediction" id="prediction"></span></p>
+            <p class="confidence">Confidence: <span id="confidence"></span>%</p>
+            
+            <div id="all-probabilities">
+                <h3>All Probabilities:</h3>
+                <div id="probabilityBars"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('imageUpload').addEventListener('change', function(e) {
+            const preview = document.getElementById('preview');
+            preview.src = URL.createObjectURL(e.target.files[0]);
+            preview.style.display = 'block';
+        });
+
+        document.getElementById('predictBtn').addEventListener('click', function() {
+            const fileInput = document.getElementById('imageUpload');
+            if (!fileInput.files[0]) {
+                alert('Please select an image first!');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            // Show loader, hide results
+            document.getElementById('loader').style.display = 'block';
+            document.getElementById('resultContainer').style.display = 'none';
+
+            fetch('/predict', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Hide loader
+                document.getElementById('loader').style.display = 'none';
+                
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+
+                // Display results
+                document.getElementById('prediction').textContent = data.prediction;
+                document.getElementById('confidence').textContent = (data.confidence * 100).toFixed(2);
+                document.getElementById('resultContainer').style.display = 'block';
+
+                // Display probability bars
+                const barsContainer = document.getElementById('probabilityBars');
+                barsContainer.innerHTML = '';
+                
+                Object.entries(data.probabilities).forEach(([suit, prob]) => {
+                    const percentage = (prob * 100).toFixed(2);
+                    
+                    // Create label
+                    const labelDiv = document.createElement('div');
+                    labelDiv.className = 'probability-label';
+                    
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = suit;
+                    
+                    const valueSpan = document.createElement('span');
+                    valueSpan.textContent = `${percentage}%`;
+                    
+                    labelDiv.appendChild(nameSpan);
+                    labelDiv.appendChild(valueSpan);
+                    barsContainer.appendChild(labelDiv);
+                    
+                    // Create bar
+                    const barDiv = document.createElement('div');
+                    barDiv.className = 'probability-bar';
+                    barDiv.style.width = `${percentage}%`;
+                    barsContainer.appendChild(barDiv);
+                });
+            })
+            .catch(error => {
+                document.getElementById('loader').style.display = 'none';
+                alert('Error: ' + error);
+            });
+        });
+    </script>
+</body>
+</html>
+    

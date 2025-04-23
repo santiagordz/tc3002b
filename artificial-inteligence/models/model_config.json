@@ -1,0 +1,6 @@
+{
+    "num_layers": 15,
+    "params": 24804228,
+    "trainable_params": 6735108,
+    "non_trainable_params": 18069120
+}

@@ -1,0 +1,68 @@
+{
+    "train": {
+        "counts": {
+            "clubs": 1806,
+            "spades": 2031,
+            "diamonds": 1827,
+            "hearts": 1845
+        },
+        "dimensions": {
+            "clubs": {
+                "avg_width": 224.0,
+                "avg_height": 224.0
+            },
+            "spades": {
+                "avg_width": 224.0,
+                "avg_height": 224.0
+            },
+            "diamonds": {
+                "avg_width": 224.0,
+                "avg_height": 224.0
+            },
+            "hearts": {
+                "avg_width": 224.0,
+                "avg_height": 224.0
+            }
+        },
+        "total_images": 7509,
+        "classes": [
+            "clubs",
+            "spades",
+            "diamonds",
+            "hearts"
+        ]
+    },
+    "test": {
+        "counts": {
+            "clubs": 65,
+            "spades": 65,
+            "diamonds": 65,
+            "hearts": 65
+        },
+        "dimensions": {
+            "clubs": {
+                "avg_width": 224.0,
+                "avg_height": 224.0
+            },
+            "spades": {
+                "avg_width": 224.0,
+                "avg_height": 224.0
+            },
+            "diamonds": {
+                "avg_width": 224.0,
+                "avg_height": 224.0
+            },
+            "hearts": {
+                "avg_width": 224.0,
+                "avg_height": 224.0
+            }
+        },
+        "total_images": 260,
+        "classes": [
+            "clubs",
+            "spades",
+            "diamonds",
+            "hearts"
+        ]
+    }
+}

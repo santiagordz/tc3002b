@@ -43,3 +43,5 @@ CMakeFiles/
 cmake_install.cmake
 CMakeCache.txt
 __pycache__/
+dataset
+*.keras

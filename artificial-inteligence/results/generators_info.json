@@ -1,0 +1,16 @@
+{
+    "class_indices": {
+        "clubs": 0,
+        "diamonds": 1,
+        "hearts": 2,
+        "spades": 3
+    },
+    "train_samples": 6008,
+    "train_steps_per_epoch": 188,
+    "validation_samples": 52,
+    "validation_steps": 2,
+    "test_samples": 260,
+    "test_steps": 9,
+    "img_size": 224,
+    "batch_size": 32
+}
