@@ -1,0 +1,11 @@
+Nombre_texto_original,Nombre_texto_similar,Grado_similitud_precargado,Coseno_BOW,Coseno_TFIDF,Coseno_Markov,BOW_acerto,TFIDF_acerto,Markov_acerto
+original.txt,low_01.txt,low,0.5744589839927078,0.37693383078064,0.3013867996714566,False,True,True
+original.txt,low_03.txt,low,0.38007044899357556,0.21158093592357138,0.14349012676906292,True,True,True
+original.txt,low_02.txt,low,0.3742721441253616,0.2403809487121243,0.19728001719856614,True,True,True
+original.txt,moderate_02.txt,medium,0.6447999900531116,0.4608714670323839,0.1810368333268988,True,True,False
+original.txt,high_03.txt,high,0.6083641156353543,0.4315182453443907,0.1892381078473894,False,False,False
+original.txt,high_02.txt,high,0.7578140120147928,0.5861023600583992,0.24870066381730405,False,False,False
+original.txt,moderate_03.txt,medium,0.45505235260797705,0.2849150684496901,0.18401061358826665,True,False,False
+original.txt,moderate_01.txt,medium,0.7273734166758337,0.5475957101082494,0.300189391410711,True,True,False
+original.txt,high_00.txt,high,0.901379756694077,0.7815928225392341,0.8290696785689436,True,False,False
+original.txt,high_01.txt,high,0.8188556751386009,0.6746820908222259,0.4224658648130369,False,False,False

@@ -1,0 +1,23 @@
+
+    REPORTE DE ANÁLISIS DE SIMILITUD DE TEXTOS
+    ==========================================
+    
+    Total de archivos analizados: 10
+    
+    CONTEO DE ACIERTOS POR MÉTODO:
+    - Bag of Words (BOW): 6 de 10 (60.00%)
+    - TF-IDF: 5 de 10 (50.00%)
+    - Cadenas de Markov: 3 de 10 (30.00%)
+    
+    CONCLUSIONES:
+    El método con mayor tasa de acierto es: BOW
+    
+    Análisis detallado:
+    - BOW: Es un método simple que cuenta la frecuencia de palabras sin considerar su orden.
+    - TF-IDF: Mejora el BOW al dar más peso a palabras menos comunes y menos peso a palabras muy frecuentes.
+    - Markov: Considera el orden de las palabras, capturando mejor el estilo y la estructura del texto.
+    
+    Para este conjunto específico de textos, los resultados sugieren que el método 
+    BOW es el más efectivo para detectar 
+    correctamente el nivel de similitud.
+    
