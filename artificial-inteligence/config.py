@@ -31,8 +31,8 @@ FINI_TUNING_LR = 1e-5  # Tasa de aprendizaje inicial
 DROPOUT_RATE = 0.3  # Tasa de dropout para regularización
 
 # Hiperparámetros de entrenamiento
-EPOCHS = 30  # Número de épocas máximas
-PATIENCE = 12  # Épocas para early stopping
+EPOCHS = 10  # Número de épocas máximas
+PATIENCE = 5  # Épocas para early stopping
 
 # Nombre del modelo basado en timestamp
 TIMESTAMP = time.strftime("%Y%m%d-%H%M%S")
@@ -43,4 +43,4 @@ MODEL_PATH = os.path.join(MODEL_DIR, "modelo_detector.keras")
 BEST_MODEL_PATH = os.path.join(RESULTS_DIR, f'{MODEL_NAME}_best.keras')
 
 # Clases para clasificación
-CLASS_NAMES = ["clubs", "diamonds", "hearts", "spades"]  # Asumiendo clasificación binaria fake/real
+CLASS_NAMES = ["clubs", "diamonds", "hearts", "spades"]

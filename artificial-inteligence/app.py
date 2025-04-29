@@ -8,7 +8,7 @@ import os
 app = Flask(__name__)
 
 # Configuration
-MODEL_PATH = "results/cnn_detector_20250422-203509_final.keras"  # Update with your actual model path
+MODEL_PATH = "results/cnn_detector_20250428-133221_final_best.keras"  # Update with your actual model path
 CLASS_NAMES = ["clubs", "diamonds", "hearts", "spades"]
 IMG_SIZE = 224  # Should match what your model was trained on
 
