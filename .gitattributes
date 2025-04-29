@@ -1,1 +1,2 @@
+reto/modelos/use_model/variables/*.data-* filter=lfs diff=lfs merge=lfs -text
 reto/modelos/use_model/variables/* filter=lfs diff=lfs merge=lfs -text
