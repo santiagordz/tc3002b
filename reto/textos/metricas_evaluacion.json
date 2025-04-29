@@ -1,20 +1,20 @@
 {
     "BOW": {
-        "exactitud": 0.8333333333333334,
+        "exactitud": 0.6666666666666666,
         "precision": {
             "high": 0.6666666666666666,
-            "medium": 1.0,
+            "medium": 0.5,
             "low": 1.0
         },
         "recall": {
             "high": 1.0,
             "medium": 0.5,
-            "low": 1.0
+            "low": 0.5
         },
         "f1": {
             "high": 0.8,
-            "medium": 0.6666666666666666,
-            "low": 1.0
+            "medium": 0.5,
+            "low": 0.6666666666666666
         },
         "matriz_confusion": [
             [
@@ -29,27 +29,27 @@
             ],
             [
                 0,
-                0,
-                2
+                1,
+                1
             ]
         ]
     },
     "TFIDF": {
-        "exactitud": 1.0,
+        "exactitud": 0.8333333333333334,
         "precision": {
             "high": 1.0,
-            "medium": 1.0,
+            "medium": 0.6666666666666666,
             "low": 1.0
         },
         "recall": {
             "high": 1.0,
             "medium": 1.0,
-            "low": 1.0
+            "low": 0.5
         },
         "f1": {
             "high": 1.0,
-            "medium": 1.0,
-            "low": 1.0
+            "medium": 0.8,
+            "low": 0.6666666666666666
         },
         "matriz_confusion": [
             [
@@ -64,27 +64,27 @@
             ],
             [
                 0,
-                0,
-                2
+                1,
+                1
             ]
         ]
     },
     "MARKOV": {
-        "exactitud": 0.6666666666666666,
+        "exactitud": 0.5,
         "precision": {
-            "high": 0.5,
+            "high": 0.4,
             "medium": 0.0,
             "low": 1.0
         },
         "recall": {
             "high": 1.0,
             "medium": 0.0,
-            "low": 1.0
+            "low": 0.5
         },
         "f1": {
-            "high": 0.6666666666666666,
+            "high": 0.5714285714285714,
             "medium": 0.0,
-            "low": 1.0
+            "low": 0.6666666666666666
         },
         "matriz_confusion": [
             [
@@ -98,28 +98,28 @@
                 0
             ],
             [
+                1,
                 0,
-                0,
-                2
+                1
             ]
         ]
     },
     "SEMANTICO": {
-        "exactitud": 0.8333333333333334,
+        "exactitud": 0.6666666666666666,
         "precision": {
             "high": 0.6666666666666666,
-            "medium": 1.0,
+            "medium": 0.5,
             "low": 1.0
         },
         "recall": {
             "high": 1.0,
             "medium": 0.5,
-            "low": 1.0
+            "low": 0.5
         },
         "f1": {
             "high": 0.8,
-            "medium": 0.6666666666666666,
-            "low": 1.0
+            "medium": 0.5,
+            "low": 0.6666666666666666
         },
         "matriz_confusion": [
             [
@@ -134,8 +134,8 @@
             ],
             [
                 0,
-                0,
-                2
+                1,
+                1
             ]
         ]
     },
@@ -175,21 +175,21 @@
         ]
     },
     "NGRAMA_CARACTER": {
-        "exactitud": 1.0,
+        "exactitud": 0.8333333333333334,
         "precision": {
             "high": 1.0,
-            "medium": 1.0,
+            "medium": 0.6666666666666666,
             "low": 1.0
         },
         "recall": {
             "high": 1.0,
             "medium": 1.0,
-            "low": 1.0
+            "low": 0.5
         },
         "f1": {
             "high": 1.0,
-            "medium": 1.0,
-            "low": 1.0
+            "medium": 0.8,
+            "low": 0.6666666666666666
         },
         "matriz_confusion": [
             [
@@ -204,27 +204,27 @@
             ],
             [
                 0,
-                0,
-                2
+                1,
+                1
             ]
         ]
     },
     "COMBINADO": {
-        "exactitud": 1.0,
+        "exactitud": 0.8333333333333334,
         "precision": {
             "high": 1.0,
-            "medium": 1.0,
+            "medium": 0.6666666666666666,
             "low": 1.0
         },
         "recall": {
             "high": 1.0,
             "medium": 1.0,
-            "low": 1.0
+            "low": 0.5
         },
         "f1": {
             "high": 1.0,
-            "medium": 1.0,
-            "low": 1.0
+            "medium": 0.8,
+            "low": 0.6666666666666666
         },
         "matriz_confusion": [
             [
@@ -239,8 +239,8 @@
             ],
             [
                 0,
-                0,
-                2
+                1,
+                1
             ]
         ]
     }

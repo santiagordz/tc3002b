@@ -146,7 +146,25 @@ Evaluación en el Conjunto de Validación:
 
 La precisión y pérdida son perfectas en el set de validación, lo cual puede indicar overfitting, pero después de utilizar el set de prueba, igualmente da 100% de precicion. Por lo que puedo intuir que el modelo, si bien no puede ser 100 % en todos los casos, ejecuta su tarea muy cerca de la perfección. 
 
+# Conclusiones
 
+El proyecto de detección de palos de cartas usando CNNs muestra una clara evolución a través de tres versiones, con mejoras significativas en cada iteración:
+
+La primera versión (V1) intentó clasificar las 53 cartas individuales de la baraja francesa, pero el rendimiento fue limitado (54.93% de precisión) debido a la insuficiente cantidad de datos por clase (~150 imágenes por carta).
+
+La segunda versión (V2) redefinió el enfoque para clasificar únicamente los 4 palos (tréboles, corazones, diamantes y picas), implementando transfer learning con ResNet50 preentrenada. Esta mejora del diseño elevó la precisión al 70.32%, demostrando el valor de reducir la complejidad del problema y aprovechar modelos preentrenados.
+
+La versión final (V3) optimizó la arquitectura y el proceso de fine-tuning, alcanzando una precisión del 100% tanto en el conjunto de validación como en el de prueba. Aunque este resultado perfecto podría sugerir sobreajuste, la consistencia en ambos conjuntos indica que el modelo es realmente efectivo para esta tarea específica.
+
+Este proyecto demuestra claramente la importancia de:
+1. Definir adecuadamente el alcance del problema según los datos disponibles
+2. Aplicar técnicas de transfer learning para problemas con conjuntos de datos limitados
+3. Optimizar la arquitectura y el proceso de entrenamiento de manera iterativa
+4. Implementar técnicas de aumento de datos para mejorar la robustez del modelo
+
+La implementación final logra una excelente capacidad para clasificar los palos de cartas y podría ser fácilmente integrada en aplicaciones prácticas a través de la interfaz web desarrollada en Flask.
+
+# Ejecutar localmente
 
 ## Requisitos
 
@@ -198,3 +216,13 @@ Los resultados del entrenamiento se guardan en el directorio `resultados`:
 - Modelo final (`cnn_detector_*_final.h5`)
 - Curvas de aprendizaje (accuracy y loss)
 - Historial de entrenamiento (formato JSON)
+
+## Autor
+
+Santiago Rodriguez Murialdo
+
+## Referencias
+
+Md. Belal Hossain, S.M. Hasan Sazzad Iqbal, Md. Monirul Islam, Md. Nasim Akhtar, Iqbal H. Sarker. Transfer learning with fine-tuned deep CNN ResNet50 model for classifying COVID-19 from chest X-ray images, https://doi.org/10.1016/j.imu.2022.100916. (https://www.sciencedirect.com/science/article/pii/S235291482200065X)
+
+Pouya Bohlol, Soleiman Hosseinpour, Mahmoud Soltani Firouz. Improved food recognition using a refined ResNet50 architecture with improved fully connected layers, https://doi.org/10.1016/j.crfs.2025.101005. (https://www.sciencedirect.com/science/article/pii/S266592712500036X)
