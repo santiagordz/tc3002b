@@ -4,12 +4,14 @@
 
 ### Selección de Datos
 
-Para el desarrollo y evaluación de este modelo de detección de plagio, se utilizó el conjunto de datos "Dokumen Teks", disponible públicamente en Kaggle (<mcurl name="Plagiarism Document Text" url="https://www.kaggle.com/datasets/fajarpanaungi/plagiarism-document-text"></mcurl>). Este conjunto de datos está estructurado en dos carpetas principales:
+Para el desarrollo y evaluación de este modelo de detección de plagio, se utilizó el conjunto de datos "Dokumen Teks", disponible públicamente en [Kaggle](https://www.kaggle.com/datasets/fajarpanaungi/plagiarism-document-text). Este conjunto de datos está estructurado en dos carpetas principales:
 
 1.  **Original**: Contiene los documentos fuente que sirven como referencia.
 2.  **Copy**: Contiene documentos que son versiones modificadas o copias de los documentos originales, diseñados para simular diferentes escenarios de plagio o similitud.
 
-La elección de este conjunto de datos se basa en su estructura clara, que permite una comparación directa por pares entre un documento original y su correspondiente versión sospechosa. Esto facilita la evaluación del modelo en su tarea principal: determinar el grado de similitud entre dos textos específicos.
+La elección de este conjunto de datos se basa en su estructura clara, que permite una comparación directa por pares entre un documento original y su versión sospechosa. 
+
+Esto facilita la evaluación del modelo en su tarea principal: determinar el grado de similitud entre dos textos específicos.
 
 ### Análisis de Datos
 
@@ -38,7 +40,7 @@ El análisis reveló que los textos con similitud alta comparten una gran propor
 El modelo de detección de plagio se construyó utilizando embeddings semánticos, específicamente el Universal Sentence Encoder (USE) de Google. El proceso de construcción siguió estos pasos:
 
 1. **Selección del modelo de embeddings**:
-   - Se eligió el **Universal Sentence Encoder (USE)** de Google, accesible a través de TensorFlow Hub (<mcurl name="TensorFlow Hub - Universal Sentence Encoder" url="https://tfhub.dev/google/universal-sentence-encoder/4"></mcurl>). Este modelo es conocido por su habilidad para entender el significado general de frases y párrafos, más allá de las palabras individuales.
+   - Se eligió el **Universal Sentence Encoder (USE)** de Google, accesible a través de [TensorFlow Hub](https://tfhub.dev/google/universal-sentence-encoder/4). Este modelo es conocido por su habilidad para entender el significado general de frases y párrafos, más allá de las palabras individuales.
    - El USE transforma cada texto en un "embedding" o vector numérico de 512 dimensiones. Este vector captura la esencia semántica del texto, permitiendo comparar significados incluso si las palabras exactas son diferentes.
 
 2. **Implementación del pipeline de procesamiento**:
@@ -88,11 +90,7 @@ El modelo de detección de plagio basado en embeddings semánticos fue evaluado 
    ![Similitud vs Confianza](./resultados/similitud_vs_confianza.png)
    *Figura 3: Gráfico de dispersión que muestra la relación entre la puntuación de similitud y el nivel de confianza para cada par.*
 
-3. **Comparación con estudios previos**:
-   - Los embeddings semánticos muestran un rendimiento superior a métodos tradicionales como Bag of Words (BOW) o TF-IDF en la detección de plagio con paráfrasis.
-   - El modelo es más robusto ante cambios estructurales en el texto, manteniendo la capacidad de detectar similitud semántica.
-
-4. **Evaluación de objetivos**:
+3. **Evaluación de objetivos**:
    - Se logró el objetivo principal de desarrollar un modelo de detección de plagio basado exclusivamente en embeddings semánticos.
    - El modelo implementa exitosamente la comparación por pares y la clasificación en tres niveles ('plagio', 'sospechoso', 'original') utilizando umbrales específicos.
    - La evaluación de la efectividad de estos umbrales y clasificaciones dependería de una validación contra un conjunto de datos etiquetado o una revisión experta.

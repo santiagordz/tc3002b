@@ -17,8 +17,8 @@ import json
 # Configuración global
 CONFIG = {
     'umbrales': {
-        'alto': 0.85,
-        'medio': 0.55
+        'plagio': 0.85,    # Antes 'alto'
+        'sospechoso': 0.55  # Antes 'medio'
     },
     'pesos': {
         'bow': 0.15,
@@ -37,14 +37,35 @@ EMBEDDINGS_MODEL = None
 
 # Preprocesamiento del texto
 def preprocess_text(texto):
-    """Preprocesamiento básico del texto."""
-    if texto is None:
+    """Preprocesamiento básico del texto con optimizaciones.
+    
+    Args:
+        texto (str): Texto a preprocesar
+        
+    Returns:
+        str: Texto preprocesado
+    """
+    # Verificar entrada
+    if texto is None or not isinstance(texto, str):
         return ''
-    # Normalizar espacios
-    texto = re.sub(r'\s+', ' ', texto)
-    # Conservar sólo caracteres alfanuméricos y espacios para análisis general
-    texto_procesado = re.sub(r'[^a-zA-ZáéíóúÁÉÍÓÚüÜñÑ0-9\s]', '', texto)
-    return texto_procesado.lower().strip()
+    
+    try:
+        # Limitar longitud para mejorar rendimiento
+        if len(texto) > 1000000:  # Limitar a 1M caracteres
+            texto = texto[:1000000]
+            print("Texto truncado a 1M caracteres para optimizar rendimiento")
+            
+        # Normalizar espacios (más eficiente)
+        texto = ' '.join(texto.split())
+        
+        # Conservar sólo caracteres alfanuméricos y espacios para análisis general
+        texto_procesado = re.sub(r'[^a-zA-ZáéíóúÁÉÍÓÚüÜñÑ0-9\s]', '', texto)
+        
+        return texto_procesado.lower().strip()
+    except Exception as e:
+        print(f"Error en preprocesamiento de texto: {e}")
+        return ''
+
 
 # Carga de modelo de embeddings semánticos
 def cargar_modelo_embeddings():
@@ -76,34 +97,68 @@ def cargar_modelo_embeddings():
     
     return EMBEDDINGS_MODEL
 
+# Cache para embeddings
+EMBEDDINGS_CACHE = {}
+
 # Obtener embeddings semánticos
 def obtener_embeddings_semanticos(textos):
-    """Obtiene embeddings semánticos para los textos proporcionados."""
+    """Obtiene embeddings semánticos para los textos proporcionados con caché."""
+    global EMBEDDINGS_CACHE
     modelo = cargar_modelo_embeddings()
     
+    # Crear claves de caché para los textos
+    cache_keys = [hash(texto[:1000]) for texto in textos]  # Usar solo los primeros 1000 caracteres para la clave
+    
+    # Verificar caché para cada texto
+    resultados = []
+    textos_a_procesar = []
+    indices_a_procesar = []
+    
+    for i, (texto, key) in enumerate(zip(textos, cache_keys)):
+        if key in EMBEDDINGS_CACHE:
+            resultados.append(EMBEDDINGS_CACHE[key])
+        else:
+            textos_a_procesar.append(texto)
+            indices_a_procesar.append(i)
+    
+    # Si no hay textos para procesar, devolver resultados de caché
+    if not textos_a_procesar:
+        return np.array(resultados)
+    
+    # Procesar textos que no están en caché
     if modelo == "FALLBACK":
         # Modelo fallback simple basado en TF-IDF
         vectorizer = TfidfVectorizer(max_features=512)
-        embeddings = vectorizer.fit_transform(textos).toarray()
-        return embeddings
+        nuevos_embeddings = vectorizer.fit_transform(textos_a_procesar).toarray()
+    else:
+        try:
+            # Asegurarse de que los textos no estén vacíos
+            textos_a_procesar = [t if t.strip() else "texto vacío" for t in textos_a_procesar]
+            
+            # Truncar textos muy largos para evitar problemas de memoria
+            textos_a_procesar = [t[:100000] for t in textos_a_procesar]
+            
+            # Obtener embeddings
+            nuevos_embeddings = modelo(textos_a_procesar).numpy()
+        except Exception as e:
+            print(f"Error al obtener embeddings: {e}")
+            # Fallback a TF-IDF simple
+            vectorizer = TfidfVectorizer(max_features=512)
+            nuevos_embeddings = vectorizer.fit_transform(textos_a_procesar).toarray()
     
-    try:
-        # Asegurarse de que los textos no estén vacíos
-        textos = [t if t.strip() else "texto vacío" for t in textos]
-        
-        # Truncar textos muy largos para evitar problemas de memoria
-        textos = [t[:100000] for t in textos]
-        
-        # Obtener embeddings
-        embeddings = modelo(textos).numpy()
-        return embeddings
+    # Guardar nuevos embeddings en caché
+    for i, idx in enumerate(indices_a_procesar):
+        EMBEDDINGS_CACHE[cache_keys[idx]] = nuevos_embeddings[i]
+        resultados.insert(idx, nuevos_embeddings[i])
     
-    except Exception as e:
-        print(f"Error al obtener embeddings: {e}")
-        # Fallback a TF-IDF simple
-        vectorizer = TfidfVectorizer(max_features=512)
-        embeddings = vectorizer.fit_transform(textos).toarray()
-        return embeddings
+    # Limitar tamaño de caché (mantener solo los últimos 100 embeddings)
+    if len(EMBEDDINGS_CACHE) > 100:
+        # Eliminar las claves más antiguas
+        oldest_keys = list(EMBEDDINGS_CACHE.keys())[:-100]
+        for key in oldest_keys:
+            del EMBEDDINGS_CACHE[key]
+    
+    return np.array(resultados)
 
 # Matriz de transición de Markov
 def crear_matriz_markov_mejorada(texto, n=2):
@@ -189,13 +244,17 @@ def extraer_caracteristicas_estilo(texto):
 
 # Clasificar la similitud
 def clasificar_similitud(sim):
-    """Clasifica el nivel de similitud basado en umbrales."""
-    if sim >= CONFIG['umbrales']['alto']:
-        return 'high'
-    elif sim >= CONFIG['umbrales']['medio']:
-        return 'medium'
+    """Clasifica el nivel de similitud basado en umbrales.
+    
+    Retorna:
+        str: 'plagio', 'sospechoso', o 'original' según el nivel de similitud.
+    """
+    if sim >= CONFIG['umbrales']['plagio']:
+        return 'plagio'
+    elif sim >= CONFIG['umbrales']['sospechoso']:
+        return 'sospechoso'
     else:
-        return 'low'
+        return 'original'
 
 # Calcular similitud combinada
 def calcular_similitud_combinada(texto_original, texto_similar, pesos=None):
@@ -285,6 +344,9 @@ def evaluar_modelo(df_resultados):
     # Evaluar cada método por separado
     metodos = ['BOW', 'TFIDF', 'MARKOV', 'SEMANTICO', 'NGRAMA_PALABRA', 'NGRAMA_CARACTER', 'COMBINADO']
     
+    # Nuevas etiquetas de clasificación
+    etiquetas = ['plagio', 'sospechoso', 'original']
+    
     for metodo in metodos:
         if f"pred_{metodo}" in df_resultados.columns:
             y_true = df_resultados["precargado"]
@@ -292,7 +354,7 @@ def evaluar_modelo(df_resultados):
             
             # Calcular precisión, recall, f1 para cada clase
             precision, recall, f1, _ = precision_recall_fscore_support(
-                y_true, y_pred, average=None, labels=['high', 'medium', 'low']
+                y_true, y_pred, average=None, labels=etiquetas
             )
             
             # Calcular exactitud
@@ -300,11 +362,11 @@ def evaluar_modelo(df_resultados):
             
             metricas[metodo] = {
                 'exactitud': exactitud,
-                'precision': dict(zip(['high', 'medium', 'low'], precision)),
-                'recall': dict(zip(['high', 'medium', 'low'], recall)),
-                'f1': dict(zip(['high', 'medium', 'low'], f1)),
+                'precision': dict(zip(etiquetas, precision)),
+                'recall': dict(zip(etiquetas, recall)),
+                'f1': dict(zip(etiquetas, f1)),
                 'matriz_confusion': confusion_matrix(
-                    y_true, y_pred, labels=['high', 'medium', 'low']
+                    y_true, y_pred, labels=etiquetas
                 ).tolist()  # Convertir a lista para poder serializarlo
             }
     
@@ -321,12 +383,19 @@ def procesar_archivo(nombre_archivo, ruta_carpeta, texto_original):
             texto_similar = preprocess_text(f.read())
         
         # Extraer etiqueta precargada del nombre del archivo
-        if nombre_archivo.startswith("high"):
-            precargado = "high"
+        if nombre_archivo.startswith("plagio"):
+            precargado = "plagio"
+        elif nombre_archivo.startswith("sospechoso"):
+            precargado = "sospechoso"
+        elif nombre_archivo.startswith("original") and nombre_archivo != "original.txt":
+            precargado = "original"
+        # Mantener compatibilidad con el formato anterior
+        elif nombre_archivo.startswith("high"):
+            precargado = "plagio"
         elif nombre_archivo.startswith("moderate") or nombre_archivo.startswith("medium"):
-            precargado = "medium"
+            precargado = "sospechoso"
         elif nombre_archivo.startswith("low"):
-            precargado = "low"
+            precargado = "original"
         else:
             precargado = "unknown"
         
@@ -360,7 +429,7 @@ def procesar_archivo(nombre_archivo, ruta_carpeta, texto_original):
 
 # Ejecutar análisis completo
 def ejecutar_analisis(ruta_carpeta):
-    """Ejecuta el análisis completo de similitud entre textos."""
+    """Ejecuta el análisis completo de similitud entre textos con optimizaciones."""
     tiempo_inicio = time.time()
     
     # Verificar que existe la carpeta
@@ -372,9 +441,11 @@ def ejecutar_analisis(ruta_carpeta):
     # Verificar que existe el archivo original
     archivo_original = os.path.join(ruta_carpeta, "original.txt")
     if not os.path.exists(archivo_original):
-        return {
-            "error": f"No se encontró el archivo original.txt en {ruta_carpeta}"
-        }
+        archivo_original = os.path.join(ruta_carpeta, "Dokumen Teks", "original.txt")
+        if not os.path.exists(archivo_original):
+            return {
+                "error": f"No se encontró el archivo original.txt en {ruta_carpeta}"
+            }
     
     # Leer texto original
     try:
@@ -400,21 +471,42 @@ def ejecutar_analisis(ruta_carpeta):
     
     # Procesar archivos (secuencial o paralelo)
     resultados = []
+    total_archivos = len(archivos)
+    print(f"Procesando {total_archivos} archivos...")
+    
+    # Determinar número óptimo de workers
+    max_workers = min(os.cpu_count(), 8)  # Limitar a 8 workers máximo para evitar sobrecarga
     
     try:
-        # Procesamiento paralelo
-        with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-            futures = [executor.submit(procesar_archivo, nombre, ruta_carpeta, texto_original) 
-                      for nombre in archivos]
+        # Procesamiento paralelo con chunks para mejor rendimiento
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Crear chunks de archivos para procesar en lotes
+            chunk_size = max(1, total_archivos // (max_workers * 2))
+            archivos_chunks = [archivos[i:i + chunk_size] for i in range(0, len(archivos), chunk_size)]
+            
+            # Función para procesar un chunk completo
+            def procesar_chunk(chunk):
+                return [procesar_archivo(nombre, ruta_carpeta, texto_original) for nombre in chunk]
+            
+            # Enviar chunks para procesamiento
+            futures = [executor.submit(procesar_chunk, chunk) for chunk in archivos_chunks]
+            
+            # Recolectar resultados con seguimiento de progreso
+            completados = 0
             for future in futures:
-                resultado = future.result()
-                resultados.append(resultado)
+                chunk_resultados = future.result()
+                resultados.extend(chunk_resultados)
+                completados += len(chunk_resultados)
+                print(f"Progreso: {completados}/{total_archivos} archivos procesados ({(completados/total_archivos)*100:.1f}%)")
     except Exception as e:
         # Fallback a procesamiento secuencial si falla el paralelo
         print(f"Error en procesamiento paralelo: {e}. Usando procesamiento secuencial...")
-        for nombre in archivos:
+        for i, nombre in enumerate(archivos):
             resultado = procesar_archivo(nombre, ruta_carpeta, texto_original)
             resultados.append(resultado)
+            if (i+1) % 5 == 0 or (i+1) == len(archivos):
+                print(f"Progreso: {i+1}/{total_archivos} archivos procesados ({((i+1)/total_archivos)*100:.1f}%)")
+
     
     # Crear DataFrame con resultados
     try:
@@ -494,16 +586,17 @@ def crear_visualizaciones(df_resultados, ruta_carpeta):
         
         # 2. Matriz de confusión para método combinado
         if 'pred_COMBINADO' in df_resultados.columns and 'precargado' in df_resultados.columns:
+            etiquetas = ['plagio', 'sospechoso', 'original']
             cm = confusion_matrix(
                 df_resultados['precargado'], 
                 df_resultados['pred_COMBINADO'],
-                labels=['high', 'medium', 'low']
+                labels=etiquetas
             )
             
             plt.figure(figsize=(8, 6))
             sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                       xticklabels=['high', 'medium', 'low'],
-                       yticklabels=['high', 'medium', 'low'])
+                       xticklabels=etiquetas,
+                       yticklabels=etiquetas)
             plt.title('Matriz de Confusión - Método Combinado')
             plt.xlabel('Predicción')
             plt.ylabel('Real')
@@ -543,8 +636,18 @@ def comparar_textos(texto1, texto2):
 def guardar_configuracion(config):
     """Guarda la configuración actual a un archivo."""
     try:
-        with open('config.json', 'w', encoding='utf-8') as f:
+        # Crear directorio si no existe
+        if not os.path.exists('config'):
+            os.makedirs('config')
+        
+        # Guardar configuración
+        with open('config/config.json', 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=4)
+        
+        # Actualizar configuración global
+        global CONFIG
+        CONFIG = config
+        
         return True
     except Exception as e:
         print(f"Error al guardar configuración: {e}")
@@ -554,13 +657,25 @@ def guardar_configuracion(config):
 def cargar_configuracion():
     """Carga la configuración desde un archivo."""
     try:
-        if os.path.exists('config.json'):
-            with open('config.json', 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return CONFIG  # Usar configuración por defecto
+        # Verificar si existe el archivo
+        if os.path.exists('config/config.json'):
+            with open('config/config.json', 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                
+            # Verificar y actualizar etiquetas antiguas si es necesario
+            if 'umbrales' in config:
+                # Convertir de formato antiguo a nuevo si es necesario
+                if 'alto' in config['umbrales'] and 'plagio' not in config['umbrales']:
+                    config['umbrales']['plagio'] = config['umbrales'].pop('alto')
+                if 'medio' in config['umbrales'] and 'sospechoso' not in config['umbrales']:
+                    config['umbrales']['sospechoso'] = config['umbrales'].pop('medio')
+            
+            return config
+        else:
+            return CONFIG
     except Exception as e:
         print(f"Error al cargar configuración: {e}")
-        return CONFIG  # Usar configuración por defecto
+        return CONFIG
 
 # Inicializar configuración al cargar el módulo
 CONFIG = cargar_configuracion()

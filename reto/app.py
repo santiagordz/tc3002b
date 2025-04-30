@@ -82,18 +82,18 @@ with st.sidebar:
     
     if show_config:
         st.subheader("Umbrales de similitud")
-        umbral_alto = st.slider(
-            "Umbral para similitud alta", 
+        umbral_plagio = st.slider(
+            "Umbral para detección de plagio", 
             min_value=0.5, 
             max_value=1.0, 
-            value=CONFIG['umbrales']['alto'],
+            value=CONFIG['umbrales']['plagio'],
             step=0.01
         )
-        umbral_medio = st.slider(
-            "Umbral para similitud media", 
+        umbral_sospechoso = st.slider(
+            "Umbral para contenido sospechoso", 
             min_value=0.1, 
             max_value=0.8, 
-            value=CONFIG['umbrales']['medio'],
+            value=CONFIG['umbrales']['sospechoso'],
             step=0.01
         )
         
@@ -136,8 +136,8 @@ with st.sidebar:
         if st.button("Guardar configuración"):
             nueva_config = {
                 'umbrales': {
-                    'alto': umbral_alto,
-                    'medio': umbral_medio
+                    'plagio': umbral_plagio,
+                    'sospechoso': umbral_sospechoso
                 },
                 'pesos': {
                     'bow': peso_bow,
@@ -193,16 +193,16 @@ if modo == "Análisis de textos individuales":
                 # Nivel de similitud
                 nivel = resultados['nivel_similitud'].upper()
                 color = {
-                    'HIGH': 'red',
-                    'MEDIUM': 'orange',
-                    'LOW': 'green'
+                    'PLAGIO': 'red',
+                    'SOSPECHOSO': 'orange',
+                    'ORIGINAL': 'green'
                 }.get(nivel, 'blue')
                 
                 # Descripción del nivel
                 descripcion = {
-                    'HIGH': "⚠️ **ALTA SIMILITUD**: Los textos presentan un nivel significativo de similitud que podría constituir una posible infracción de derechos de autor.",
-                    'MEDIUM': "⚠️ **SIMILITUD MEDIA**: Los textos presentan algunas similitudes. Se recomienda revisar con detalle.",
-                    'LOW': "✅ **SIMILITUD BAJA**: Los textos son suficientemente diferentes."
+                    'PLAGIO': "⚠️ **PLAGIO DETECTADO**: Los textos presentan un nivel significativo de similitud que podría constituir una posible infracción de derechos de autor.",
+                    'SOSPECHOSO': "⚠️ **CONTENIDO SOSPECHOSO**: Los textos presentan algunas similitudes. Se recomienda revisar con detalle.",
+                    'ORIGINAL': "✅ **CONTENIDO ORIGINAL**: Los textos son suficientemente diferentes."
                 }.get(nivel, "")
                 
                 # Mostrar nivel y puntuación
@@ -237,15 +237,15 @@ if modo == "Análisis de textos individuales":
                 ]
                 
                 # Umbrales para las líneas horizontales
-                umbral_alto = CONFIG['umbrales']['alto']
-                umbral_medio = CONFIG['umbrales']['medio']
+                umbral_plagio = CONFIG['umbrales']['plagio']
+                umbral_sospechoso = CONFIG['umbrales']['sospechoso']
                 
                 # Crear barras
                 bars = ax.bar(metodos, valores, color='skyblue')
                 
                 # Añadir líneas de umbral
-                ax.axhline(y=umbral_alto, color='red', linestyle='--', alpha=0.7)
-                ax.axhline(y=umbral_medio, color='orange', linestyle='--', alpha=0.7)
+                ax.axhline(y=umbral_plagio, color='red', linestyle='--', alpha=0.7, label='Umbral de plagio')
+                ax.axhline(y=umbral_sospechoso, color='orange', linestyle='--', alpha=0.7, label='Umbral de sospecha')
                 
                 # Etiquetas
                 ax.set_ylabel('Puntuación de Similitud')
@@ -274,7 +274,7 @@ if modo == "Análisis de textos individuales":
                 
                 # Recomendaciones
                 st.subheader("Interpretación y Recomendaciones")
-                if nivel == 'HIGH':
+                if nivel == 'PLAGIO':
                     st.markdown("""
                     📌 **Interpretación**: Los textos muestran una similitud muy alta que podría indicar:
                     - Copia directa o con modificaciones mínimas
@@ -285,7 +285,7 @@ if modo == "Análisis de textos individuales":
                     - Verificar si existe atribución de la fuente original
                     - Considerar si existe una posible infracción de derechos de autor
                     """)
-                elif nivel == 'MEDIUM':
+                elif nivel == 'SOSPECHOSO':
                     st.markdown("""
                     📌 **Interpretación**: Los textos muestran una similitud moderada que podría indicar:
                     - Parafraseo extendido del contenido original
@@ -297,7 +297,7 @@ if modo == "Análisis de textos individuales":
                     - Evaluar si la similitud es coincidencia o derivación intencional
                     - Considerar si es necesario citar o atribuir la fuente original
                     """)
-                else:  # LOW
+                else:  # ORIGINAL
                     st.markdown("""
                     📌 **Interpretación**: Los textos muestran una similitud baja que podría indicar:
                     - Textos con temas relacionados pero desarrollo independiente
@@ -318,19 +318,16 @@ else:
         <h4>Instrucciones:</h4>
         <p>Para analizar un corpus completo, debe tener una carpeta con la siguiente estructura:</p>
         <ul>
-            <li><code>original.txt</code>: El texto original contra el que se compararán los demás.</li>
-            <li><code>high_*.txt</code>: Textos con alto nivel de similitud (para evaluación).</li>
-            <li><code>medium_*.txt</code> o <code>moderate_*.txt</code>: Textos con nivel medio de similitud.</li>
-            <li><code>low_*.txt</code>: Textos con bajo nivel de similitud.</li>
-            <li>Otros archivos <code>.txt</code>: Serán analizados y clasificados.</li>
+            <li><code>Original/</code>: Carpeta con los textos originales</li>
+            <li><code>Copy/</code>: Carpeta con los textos a comparar</li>
         </ul>
     </div>
     """, unsafe_allow_html=True)
     
     # Selector de carpeta
     ruta_carpeta = st.text_input(
-        "Ruta de la carpeta con los textos",
-        placeholder="Ej: C:/Users/Usuario/Documents/textos"
+        "Ruta de la carpeta principal con los textos",
+        placeholder="Ej: /Users/santiago/School/tc3002b/reto/Dokumen Teks"
     )
     
     # Botón para analizar corpus
@@ -338,9 +335,16 @@ else:
         if not ruta_carpeta or not os.path.exists(ruta_carpeta):
             st.warning("⚠️ Por favor, ingrese una ruta de carpeta válida.")
         else:
-            with st.spinner("Analizando corpus completo... Esto puede tomar varios minutos."):
-                # Realizar análisis
-                resultados = ejecutar_analisis(ruta_carpeta)
+            # Verificar estructura de carpetas
+            ruta_original = os.path.join(ruta_carpeta, "Original")
+            ruta_copy = os.path.join(ruta_carpeta, "Copy")
+            
+            if not os.path.exists(ruta_original) or not os.path.exists(ruta_copy):
+                st.error("⚠️ La carpeta debe contener las subcarpetas 'Original' y 'Copy'")
+            else:
+                with st.spinner("Analizando corpus completo... Esto puede tomar varios minutos."):
+                    # Realizar análisis
+                    resultados = ejecutar_analisis(ruta_carpeta)
                 
                 if "error" in resultados:
                     st.error(f"⚠️ Error: {resultados['error']}")
@@ -442,22 +446,22 @@ else:
                         col1, col2, col3 = st.columns(3)
                         
                         with col1:
-                            st.markdown("### Similitud Alta")
-                            st.metric("Precisión", f"{metricas_combinado['precision']['high'] * 100:.2f}%")
-                            st.metric("Recall", f"{metricas_combinado['recall']['high'] * 100:.2f}%")
-                            st.metric("F1-Score", f"{metricas_combinado['f1']['high'] * 100:.2f}%")
+                            st.markdown("### Plagio")
+                            st.metric("Precisión", f"{metricas_combinado['precision']['plagio'] * 100:.2f}%")
+                            st.metric("Recall", f"{metricas_combinado['recall']['plagio'] * 100:.2f}%")
+                            st.metric("F1-Score", f"{metricas_combinado['f1']['plagio'] * 100:.2f}%")
                         
                         with col2:
-                            st.markdown("### Similitud Media")
-                            st.metric("Precisión", f"{metricas_combinado['precision']['medium'] * 100:.2f}%")
-                            st.metric("Recall", f"{metricas_combinado['recall']['medium'] * 100:.2f}%")
-                            st.metric("F1-Score", f"{metricas_combinado['f1']['medium'] * 100:.2f}%")
+                            st.markdown("### Sospechoso")
+                            st.metric("Precisión", f"{metricas_combinado['precision']['sospechoso'] * 100:.2f}%")
+                            st.metric("Recall", f"{metricas_combinado['recall']['sospechoso'] * 100:.2f}%")
+                            st.metric("F1-Score", f"{metricas_combinado['f1']['sospechoso'] * 100:.2f}%")
                         
                         with col3:
-                            st.markdown("### Similitud Baja")
-                            st.metric("Precisión", f"{metricas_combinado['precision']['low'] * 100:.2f}%")
-                            st.metric("Recall", f"{metricas_combinado['recall']['low'] * 100:.2f}%")
-                            st.metric("F1-Score", f"{metricas_combinado['f1']['low'] * 100:.2f}%")
+                            st.markdown("### Original")
+                            st.metric("Precisión", f"{metricas_combinado['precision']['original'] * 100:.2f}%")
+                            st.metric("Recall", f"{metricas_combinado['recall']['original'] * 100:.2f}%")
+                            st.metric("F1-Score", f"{metricas_combinado['f1']['original'] * 100:.2f}%")
                     
                     # Mostrar comparación de todos los métodos
                     ruta_comparacion = os.path.join(ruta_carpeta, 'grafico_comparacion_metodos.png')
