@@ -17,12 +17,11 @@ CONFIG = {
     # Configuración para análisis de similitud
     'similitud': {
         'umbral_plagio': 0.70,  # Umbral para considerar plagio
-        'umbral_sospechoso': 0.50  # Umbral para considerar sospechoso
     },
     # Rutas de carpetas
     'rutas': {
-        'documentos_originales': '/Users/santiago/School/tc3002b/reto/Dokumen Teks/Original',
-        'documentos_sospechosos': '/Users/santiago/School/tc3002b/reto/Dokumen Teks/Copy'
+        'documentos_originales': './Dokumen Teks/Original',
+        'documentos_sospechosos': './Dokumen Teks/Copy'
     }
 }
 
@@ -48,18 +47,18 @@ def cargar_modelo_embeddings():
         
         try:
             # Intentar usar modelo previamente descargado
-            if os.path.exists('/Users/santiago/School/tc3002b/reto/modelos'):
+            if os.path.exists('./modelos'):
                 print("Cargando modelo de embeddings desde la carpeta local...")
-                EMBEDDINGS_MODEL = hub.load('/Users/santiago/School/tc3002b/reto/modelos/use_model')
+                EMBEDDINGS_MODEL = hub.load('./modelos/use_model')
             else:
                 print("Modelo no encontrado. Descargando...")
                 # Descargar y guardar modelo
                 EMBEDDINGS_MODEL = hub.load("https://tfhub.dev/google/universal-sentence-encoder/4")
                 # Crear directorio si no existe
-                if not os.path.exists('/Users/santiago/School/tc3002b/reto/modelos'):
-                    os.makedirs('/Users/santiago/School/tc3002b/reto/modelos')
+                if not os.path.exists('./modelos'):
+                    os.makedirs('./modelos')
                 # Guardar para uso futuro
-                tf.saved_model.save(EMBEDDINGS_MODEL, '/Users/santiago/School/tc3002b/reto/modelos/use_model')
+                tf.saved_model.save(EMBEDDINGS_MODEL, './modelos/use_model')
             
             print("Modelo de embeddings cargado con éxito.")
         except Exception as e:
@@ -108,15 +107,10 @@ def clasificar_similitud(sim):
             'clasificacion': 'plagio',
             'confianza': (sim - CONFIG['similitud']['umbral_plagio']) / (1 - CONFIG['similitud']['umbral_plagio'])
         }
-    elif sim >= CONFIG['similitud']['umbral_sospechoso']:
-        return {
-            'clasificacion': 'sospechoso',
-            'confianza': (sim - CONFIG['similitud']['umbral_sospechoso']) / (CONFIG['similitud']['umbral_plagio'] - CONFIG['similitud']['umbral_sospechoso'])
-        }
     else:
         return {
             'clasificacion': 'original',
-            'confianza': 1 - (sim / CONFIG['similitud']['umbral_sospechoso'])
+            'confianza': 1 - (sim / CONFIG['similitud']['umbral_plagio'])
         }
 
 def comparar_textos_embeddings(texto1, texto2):
@@ -239,7 +233,6 @@ def crear_visualizaciones(df_resultados, ruta_carpeta):
         plt.figure(figsize=(12, 6))
         sns.histplot(df_resultados['similitud'], bins=20, kde=True)
         plt.axvline(x=CONFIG['similitud']['umbral_plagio'], color='r', linestyle='--', label='Umbral Plagio')
-        plt.axvline(x=CONFIG['similitud']['umbral_sospechoso'], color='orange', linestyle='--', label='Umbral Sospechoso')
         plt.title('Distribución de Similitudes entre Documentos')
         plt.xlabel('Puntuación de Similitud')
         plt.ylabel('Frecuencia')
@@ -399,7 +392,7 @@ def ejecutar_analisis_embeddings(ruta_carpeta_salida=None):
 if __name__ == "__main__":
     # Ejecutar análisis con la nueva estructura de carpetas
     resultado = ejecutar_analisis_embeddings(
-        ruta_carpeta_salida="/Users/santiago/School/tc3002b/reto/evidencia-1/resultados"
+        ruta_carpeta_salida="./evidencia-1/resultados"
     )
     
     # Mostrar resultados

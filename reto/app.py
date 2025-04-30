@@ -2,6 +2,8 @@ import streamlit as st
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
 from detector_plagio import (
     comparar_textos, ejecutar_analisis, 
     cargar_configuracion, guardar_configuracion
@@ -318,9 +320,10 @@ else:
         <h4>Instrucciones:</h4>
         <p>Para analizar un corpus completo, debe tener una carpeta con la siguiente estructura:</p>
         <ul>
-            <li><code>Original/</code>: Carpeta con los textos originales</li>
-            <li><code>Copy/</code>: Carpeta con los textos a comparar</li>
+            <li><code>Original/</code>: Carpeta con los textos originales (ej: source-document01501.txt)</li>
+            <li><code>Copy/</code>: Carpeta con los textos a comparar (ej: suspicious-document01501.txt)</li>
         </ul>
+        <p>El sistema comparará documentos seleccionados de ambas carpetas para detectar posibles similitudes.</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -329,6 +332,19 @@ else:
         "Ruta de la carpeta principal con los textos",
         placeholder="Ej: /Users/santiago/School/tc3002b/reto/Dokumen Teks"
     )
+    
+    # Configuración del análisis
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        max_comparaciones = st.slider(
+            "Número máximo de comparaciones",
+            min_value=5,
+            max_value=100,
+            value=25,
+            step=5,
+            help="Limita el número total de comparaciones para mejorar el rendimiento"
+        )
     
     # Botón para analizar corpus
     if st.button("🔍 Analizar Corpus"):
@@ -342,9 +358,9 @@ else:
             if not os.path.exists(ruta_original) or not os.path.exists(ruta_copy):
                 st.error("⚠️ La carpeta debe contener las subcarpetas 'Original' y 'Copy'")
             else:
-                with st.spinner("Analizando corpus completo... Esto puede tomar varios minutos."):
-                    # Realizar análisis
-                    resultados = ejecutar_analisis(ruta_carpeta)
+                with st.spinner(f"Analizando corpus (máximo {max_comparaciones} comparaciones)... Esto puede tomar varios minutos."):
+                    # Realizar análisis con límite de comparaciones
+                    resultados = ejecutar_analisis(ruta_carpeta, max_comparaciones=max_comparaciones)
                 
                 if "error" in resultados:
                     st.error(f"⚠️ Error: {resultados['error']}")
@@ -356,53 +372,39 @@ else:
                     st.markdown(f"""
                     <div class="result-box">
                         <h3>Resumen de Análisis</h3>
-                        <p>Total de documentos analizados: <b>{resultados['total_documentos']}</b></p>
+                        <p>Total de comparaciones realizadas: <b>{resultados['total_documentos']}</b></p>
                         <p>Tiempo de ejecución: <b>{resultados['tiempo_ejecucion']:.2f} segundos</b></p>
                         <p>Resultados guardados en: <code>{resultados['ruta_resultados']}</code></p>
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # Mostrar aciertos por método
-                    st.subheader("Aciertos por Método")
+                    # Mostrar visualizaciones
+                    st.subheader("Visualizaciones")
                     
-                    # Crear gráfico de aciertos
-                    fig, ax = plt.subplots(figsize=(10, 6))
+                    # Distribución de similitudes
+                    ruta_dist = os.path.join(ruta_carpeta, 'distribucion_similitudes.png')
+                    if os.path.exists(ruta_dist):
+                        st.image(ruta_dist, caption="Distribución de Puntuaciones de Similitud")
                     
-                    metodos = list(resultados['aciertos'].keys())
-                    aciertos = list(resultados['aciertos'].values())
-                    total = resultados['total_documentos']
+                    # Mapa de calor
+                    ruta_heatmap = os.path.join(ruta_carpeta, 'mapa_calor_similitud.png')
+                    if os.path.exists(ruta_heatmap):
+                        st.image(ruta_heatmap, caption="Mapa de Calor de Similitud entre Documentos")
                     
-                    # Calcular porcentajes
-                    porcentajes = [a / total * 100 for a in aciertos]
+                    # Comparación de métodos
+                    ruta_comparacion = os.path.join(ruta_carpeta, 'grafico_comparacion_metodos.png')
+                    if os.path.exists(ruta_comparacion):
+                        st.image(ruta_comparacion, caption="Comparación de Similitudes por Método")
                     
-                    # Crear barras
-                    bars = ax.bar(metodos, porcentajes, color='lightgreen')
-                    
-                    # Etiquetas
-                    ax.set_ylabel('Porcentaje de Aciertos (%)')
-                    ax.set_title('Precisión por Método de Similitud')
-                    ax.set_ylim(0, 105)
-                    
-                    # Rotar etiquetas del eje x
-                    plt.xticks(rotation=45, ha='right')
-                    
-                    # Añadir valores sobre las barras
-                    for i, bar in enumerate(bars):
-                        height = bar.get_height()
-                        ax.text(bar.get_x() + bar.get_width()/2., height + 1,
-                              f'{aciertos[i]}/{total}\n({height:.1f}%)', 
-                              ha='center', va='bottom')
-                    
-                    plt.tight_layout()
-                    st.pyplot(fig)
-                    
-                    # Mostrar matriz de confusión
-                    st.subheader("Matriz de Confusión - Método Combinado")
-                    
-                    # Cargar imagen si existe
-                    ruta_matriz = os.path.join(ruta_carpeta, 'matriz_confusion_combinado.png')
-                    if os.path.exists(ruta_matriz):
-                        st.image(ruta_matriz)
+                    # Clustering si está disponible
+                    ruta_clusters = os.path.join(ruta_carpeta, 'clustering_documentos.png')
+                    if os.path.exists(ruta_clusters):
+                        st.subheader("Análisis de Clustering")
+                        st.image(ruta_clusters, caption="Clustering de Documentos por Similitud")
+                        
+                        ruta_resumen = os.path.join(ruta_carpeta, 'resumen_clusters.png')
+                        if os.path.exists(ruta_resumen):
+                            st.image(ruta_resumen, caption="Similitud Media por Cluster")
                     
                     # Mostrar resultados detallados
                     st.subheader("Resultados Detallados")
@@ -411,17 +413,48 @@ else:
                     if 'df_resultados' in resultados:
                         df = resultados['df_resultados']
                         
-                        # Seleccionar columnas relevantes
-                        cols_mostrar = ['similar', 'precargado', 'pred_COMBINADO', 
-                                       'cos_COMBINADO', 'cos_SEMANTICO', 'cos_BOW']
-                        df_mostrar = df[cols_mostrar].copy()
+                        # Seleccionar columnas relevantes para mostrar
+                        cols_mostrar = []
+                        for col in ['original', 'similar', 'similitud', 'nivel', 'cluster']:
+                            if col in df.columns:
+                                cols_mostrar.append(col)
+                        
+                        # Añadir columnas de similitudes específicas si existen
+                        for col in df.columns:
+                            if col.startswith('cos_') and col != 'cos_COMBINADO' and col in df.columns:
+                                cols_mostrar.append(col)
+                        
+                        # Asegurarse que todas las columnas existan
+                        cols_disponibles = [col for col in cols_mostrar if col in df.columns]
+                        df_mostrar = df[cols_disponibles].copy()
                         
                         # Renombrar columnas para mejor visualización
-                        df_mostrar.columns = ['Archivo', 'Etiqueta Real', 'Predicción', 
-                                            'Similitud Combinada', 'Similitud Semántica', 'Similitud BoW']
+                        nombres_cols = {
+                            'original': 'Archivo Original',
+                            'similar': 'Archivo Comparado', 
+                            'similitud': 'Similitud Combinada',
+                            'nivel': 'Nivel Detectado',
+                            'cluster': 'Cluster',
+                            'cos_BOW': 'Similitud BoW',
+                            'cos_TFIDF': 'Similitud TF-IDF',
+                            'cos_SEMANTICO': 'Similitud Semántica',
+                            'cos_NGRAMA_PALABRA': 'Similitud N-grama Palabra',
+                            'cos_NGRAMA_CARACTER': 'Similitud N-grama Carácter',
+                            'cos_MARKOV': 'Similitud Markov',
+                            'cos_ESTILO': 'Similitud Estilo'
+                        }
                         
-                        # Aplicar formato
-                        st.dataframe(df_mostrar)
+                        df_mostrar.rename(columns={col: nombres_cols.get(col, col) for col in df_mostrar.columns}, inplace=True)
+                        
+                        # Aplicar formato, destacando niveles sospechosos o de plagio si existe la columna
+                        if 'Nivel Detectado' in df_mostrar.columns:
+                            st.dataframe(df_mostrar.style.applymap(
+                                lambda x: 'background-color: rgba(255, 0, 0, 0.2)' if x == 'plagio' else 
+                                        ('background-color: rgba(255, 165, 0, 0.2)' if x == 'sospechoso' else ''),
+                                subset=['Nivel Detectado']
+                            ))
+                        else:
+                            st.dataframe(df_mostrar)
                         
                         # Opción para descargar resultados completos
                         csv = df.to_csv(index=False)
@@ -431,43 +464,59 @@ else:
                             file_name='resultados_completos.csv',
                             mime='text/csv',
                         )
-                    
-                    # Métricas detalladas
-                    st.subheader("Métricas de Evaluación")
-                    
-                    # Mostrar métricas para método combinado
-                    if 'metricas' in resultados and 'COMBINADO' in resultados['metricas']:
-                        metricas_combinado = resultados['metricas']['COMBINADO']
                         
-                        # Exactitud
-                        st.metric("Exactitud general", f"{metricas_combinado['exactitud'] * 100:.2f}%")
+                        # Análisis de los resultados
+                        st.subheader("Análisis de los Resultados")
                         
-                        # Métricas por clase
-                        col1, col2, col3 = st.columns(3)
+                        # Mostrar estadísticas de similitud
+                        if 'similitud' in df.columns:
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                st.metric("Similitud Media", f"{df['similitud'].mean():.3f}")
+                            
+                            with col2:
+                                st.metric("Similitud Máxima", f"{df['similitud'].max():.3f}")
+                            
+                            with col3:
+                                st.metric("Similitud Mínima", f"{df['similitud'].min():.3f}")
                         
-                        with col1:
-                            st.markdown("### Plagio")
-                            st.metric("Precisión", f"{metricas_combinado['precision']['plagio'] * 100:.2f}%")
-                            st.metric("Recall", f"{metricas_combinado['recall']['plagio'] * 100:.2f}%")
-                            st.metric("F1-Score", f"{metricas_combinado['f1']['plagio'] * 100:.2f}%")
-                        
-                        with col2:
-                            st.markdown("### Sospechoso")
-                            st.metric("Precisión", f"{metricas_combinado['precision']['sospechoso'] * 100:.2f}%")
-                            st.metric("Recall", f"{metricas_combinado['recall']['sospechoso'] * 100:.2f}%")
-                            st.metric("F1-Score", f"{metricas_combinado['f1']['sospechoso'] * 100:.2f}%")
-                        
-                        with col3:
-                            st.markdown("### Original")
-                            st.metric("Precisión", f"{metricas_combinado['precision']['original'] * 100:.2f}%")
-                            st.metric("Recall", f"{metricas_combinado['recall']['original'] * 100:.2f}%")
-                            st.metric("F1-Score", f"{metricas_combinado['f1']['original'] * 100:.2f}%")
-                    
-                    # Mostrar comparación de todos los métodos
-                    ruta_comparacion = os.path.join(ruta_carpeta, 'grafico_comparacion_metodos.png')
-                    if os.path.exists(ruta_comparacion):
-                        st.subheader("Comparación de Métodos")
-                        st.image(ruta_comparacion)
+                        # Mostrar distribución de niveles si existe
+                        if 'nivel' in df.columns:
+                            dist_niveles = df['nivel'].value_counts()
+                            
+                            st.subheader("Distribución de Niveles de Similitud")
+                            
+                            # Gráfico de barras para niveles
+                            fig, ax = plt.subplots(figsize=(10, 6))
+                            colores = {'plagio': 'red', 'sospechoso': 'orange', 'original': 'green'}
+                            
+                            for nivel in dist_niveles.index:
+                                ax.bar(
+                                    nivel.capitalize(), 
+                                    dist_niveles[nivel],
+                                    color=colores.get(nivel, 'blue')
+                                )
+                            
+                            ax.set_ylabel('Cantidad de Documentos')
+                            ax.set_title('Distribución de Niveles de Similitud')
+                            plt.tight_layout()
+                            
+                            st.pyplot(fig)
+                            
+                            # Mostrar pie chart de porcentajes
+                            fig, ax = plt.subplots(figsize=(8, 8))
+                            ax.pie(
+                                dist_niveles, 
+                                labels=[n.capitalize() for n in dist_niveles.index], 
+                                autopct='%1.1f%%',
+                                colors=[colores.get(n, 'blue') for n in dist_niveles.index],
+                                startangle=90
+                            )
+                            ax.axis('equal')
+                            ax.set_title('Porcentaje por Nivel de Similitud')
+                            
+                            st.pyplot(fig)
 
 # Pie de página
 st.markdown("""

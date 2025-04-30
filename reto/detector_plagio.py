@@ -17,8 +17,8 @@ import json
 # Configuración global
 CONFIG = {
     'umbrales': {
-        'plagio': 0.85,    # Antes 'alto'
-        'sospechoso': 0.55  # Antes 'medio'
+        'plagio': 0.70,    # Antes 'alto'
+        'sospechoso': 0.50  # Antes 'medio'
     },
     'pesos': {
         'bow': 0.15,
@@ -427,9 +427,242 @@ def procesar_archivo(nombre_archivo, ruta_carpeta, texto_original):
             "error": str(e)
         }
 
-# Ejecutar análisis completo
-def ejecutar_analisis(ruta_carpeta):
-    """Ejecuta el análisis completo de similitud entre textos con optimizaciones."""
+def crear_visualizaciones_no_etiquetadas(df_resultados, ruta_carpeta):
+    """Crea visualizaciones adecuadas para datos no etiquetados."""
+    try:
+        # 1. Distribución de similitudes
+        plt.figure(figsize=(10, 6))
+        plt.hist(df_resultados['similitud'], bins=20, alpha=0.7, color='blue')
+        plt.title('Distribución de Puntuaciones de Similitud')
+        plt.xlabel('Puntuación de Similitud')
+        plt.ylabel('Frecuencia')
+        plt.grid(True, alpha=0.3)
+        
+        # Añadir líneas de umbral
+        plt.axvline(x=CONFIG['umbrales']['plagio'], color='red', linestyle='--', 
+                  label=f'Umbral de Plagio ({CONFIG["umbrales"]["plagio"]})')
+        plt.axvline(x=CONFIG['umbrales']['sospechoso'], color='orange', linestyle='--', 
+                  label=f'Umbral Sospechoso ({CONFIG["umbrales"]["sospechoso"]})')
+        
+        plt.legend()
+        plt.tight_layout()
+        
+        ruta_dist = os.path.join(ruta_carpeta, 'distribucion_similitudes.png')
+        plt.savefig(ruta_dist)
+        plt.close()
+        
+        # 2. Mapa de calor de similitudes entre documentos
+        if len(df_resultados) <= 100:  # Limitar para evitar mapas de calor enormes
+            # Crear una matriz de similitud entre todos los pares
+            originales = df_resultados['original'].unique()
+            copias = df_resultados['similar'].unique()
+            
+            # Crear una matriz para el mapa de calor
+            matriz_similitud = np.zeros((len(originales), len(copias)))
+            
+            # Llenar la matriz
+            for i, orig in enumerate(originales):
+                for j, cop in enumerate(copias):
+                    fila = df_resultados[(df_resultados['original'] == orig) & 
+                                        (df_resultados['similar'] == cop)]
+                    if not fila.empty:
+                        matriz_similitud[i, j] = fila['similitud'].values[0]
+            
+            # Crear el mapa de calor
+            plt.figure(figsize=(12, 8))
+            sns.heatmap(matriz_similitud, cmap='YlOrRd', 
+                       xticklabels=copias, yticklabels=originales)
+            plt.title('Mapa de Calor de Similitud entre Documentos')
+            plt.xlabel('Documentos de Copy')
+            plt.ylabel('Documentos de Original')
+            plt.xticks(rotation=45, ha='right')
+            plt.yticks(rotation=0)
+            plt.tight_layout()
+            
+            ruta_heatmap = os.path.join(ruta_carpeta, 'mapa_calor_similitud.png')
+            plt.savefig(ruta_heatmap)
+            plt.close()
+        
+        # 3. Gráfico de comparación de métodos
+        plt.figure(figsize=(14, 8))
+        
+        metodos = ['BOW', 'TFIDF', 'SEMANTICO', 'NGRAMA_PALABRA', 'NGRAMA_CARACTER', 'MARKOV', 'COMBINADO']
+        colores = ['blue', 'green', 'red', 'purple', 'orange', 'brown', 'black']
+        
+        # Crear identificador para cada comparación
+        df_resultados['id_comparacion'] = df_resultados.apply(
+            lambda row: f"{row['original']} vs {row['similar']}", axis=1)
+        
+        # Ordenar por similitud combinada para mejor visualización
+        df_ordenado = df_resultados.sort_values(by='similitud', ascending=False)
+        
+        for i, metodo in enumerate(metodos):
+            col = f"cos_{metodo}"
+            if col in df_ordenado.columns:
+                plt.scatter(
+                    range(len(df_ordenado)), 
+                    df_ordenado[col],
+                    alpha=0.7,
+                    label=metodo,
+                    color=colores[i % len(colores)]
+                )
+        
+        plt.title('Comparación de Similitudes por Método')
+        plt.xlabel('Comparación (ordenado por similitud)')
+        plt.ylabel('Puntuación de Similitud')
+        plt.xticks([])  # Ocultar etiquetas del eje x
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.tight_layout()
+        
+        ruta_comparacion = os.path.join(ruta_carpeta, 'grafico_comparacion_metodos.png')
+        plt.savefig(ruta_comparacion)
+        plt.close()
+        
+        # 4. Tops documentos más similares
+        tops = df_resultados.sort_values(by='similitud', ascending=False).head(10)
+        
+        plt.figure(figsize=(12, 6))
+        plt.bar(tops['id_comparacion'], tops['similitud'], color='royalblue')
+        plt.title('Top 10 Documentos con Mayor Similitud')
+        plt.xlabel('Par de Documentos')
+        plt.ylabel('Puntuación de Similitud')
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        
+        ruta_tops = os.path.join(ruta_carpeta, 'top_documentos_similares.png')
+        plt.savefig(ruta_tops)
+        plt.close()
+        
+    except Exception as e:
+        print(f"Error al crear visualizaciones para datos no etiquetados: {e}")
+
+def realizar_clustering(df_resultados, ruta_carpeta):
+    """Realiza análisis de clustering para agrupar documentos por similitud."""
+    try:
+        from sklearn.cluster import KMeans
+        from sklearn.preprocessing import StandardScaler
+        
+        # Preparar características para clustering
+        columnas_metricas = [col for col in df_resultados.columns if col.startswith('cos_')]
+        
+        if not columnas_metricas:
+            print("No se encontraron métricas para realizar clustering")
+            return
+        
+        # Crear matriz de características
+        X = df_resultados[columnas_metricas].values
+        
+        # Normalizar características
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        # Determinar número óptimo de clusters (entre 2 y 5)
+        from sklearn.metrics import silhouette_score
+        
+        silhouette_scores = []
+        k_range = range(2, min(6, len(df_resultados) // 5 + 1))
+        
+        for k in k_range:
+            kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+            cluster_labels = kmeans.fit_predict(X_scaled)
+            silhouette_avg = silhouette_score(X_scaled, cluster_labels)
+            silhouette_scores.append(silhouette_avg)
+        
+        # Seleccionar mejor k
+        # if silhouette_scores:
+        #     mejor_k = k_range[np.argmax(silhouette_scores)]
+        # else:
+        mejor_k = 3  # Valor predeterminado
+        
+        # Crear modelo final
+        kmeans = KMeans(n_clusters=mejor_k, random_state=42, n_init=10)
+        df_resultados['cluster'] = kmeans.fit_predict(X_scaled)
+        
+        # Visualizar clusters en 2D usando PCA
+        from sklearn.decomposition import PCA
+        
+        pca = PCA(n_components=2)
+        principalComponents = pca.fit_transform(X_scaled)
+        
+        # Crear DataFrame para visualización
+        df_pca = pd.DataFrame(data=principalComponents, columns=['PC1', 'PC2'])
+        df_pca['cluster'] = df_resultados['cluster']
+        df_pca['similitud'] = df_resultados['similitud']
+        df_pca['id_comparacion'] = df_resultados['id_comparacion'] if 'id_comparacion' in df_resultados.columns else df_resultados.index
+        
+        # Graficar clusters
+        plt.figure(figsize=(10, 8))
+        
+        # Colores para clusters
+        colores = plt.cm.tab10(np.linspace(0, 1, mejor_k))
+        
+        # Graficar cada cluster
+        for i in range(mejor_k):
+            plt.scatter(
+                df_pca[df_pca['cluster'] == i]['PC1'], 
+                df_pca[df_pca['cluster'] == i]['PC2'],
+                s=50, c=[colores[i]], 
+                label=f'Cluster {i+1}'
+            )
+        
+        # Marcar centroides
+        centroides = pca.transform(kmeans.cluster_centers_)
+        plt.scatter(
+            centroides[:, 0], centroides[:, 1],
+            s=200, marker='X', c='black', alpha=0.7,
+            label='Centroides'
+        )
+        
+        plt.title(f'Clustering de Documentos por Similitud (k={mejor_k})')
+        plt.xlabel('Componente Principal 1')
+        plt.ylabel('Componente Principal 2')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        ruta_clusters = os.path.join(ruta_carpeta, 'clustering_documentos.png')
+        plt.savefig(ruta_clusters)
+        plt.close()
+        
+        # Guardar resultados con clusters
+        df_resultados.to_csv(os.path.join(ruta_carpeta, "resultados_clustering.csv"), index=False)
+        
+        # Análisis por cluster
+        resumen_clusters = df_resultados.groupby('cluster').agg({
+            'similitud': ['mean', 'min', 'max', 'count']
+        })
+        
+        # Crear informe por cluster
+        plt.figure(figsize=(10, 6))
+        
+        # Graficar estadísticas por cluster
+        for i in range(mejor_k):
+            if i in resumen_clusters.index:
+                plt.bar(
+                    f"Cluster {i+1}",
+                    resumen_clusters.loc[i, ('similitud', 'mean')],
+                    yerr=[[0], [resumen_clusters.loc[i, ('similitud', 'max')] - resumen_clusters.loc[i, ('similitud', 'mean')]]],
+                    color=colores[i],
+                    alpha=0.7,
+                    capsize=10
+                )
+        
+        plt.title('Similitud Media por Cluster')
+        plt.ylabel('Similitud Media')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        ruta_resumen = os.path.join(ruta_carpeta, 'resumen_clusters.png')
+        plt.savefig(ruta_resumen)
+        plt.close()
+        
+    except Exception as e:
+        print(f"Error al realizar clustering: {e}")
+
+# Modificar ejecutar_analisis para trabajar con datos no etiquetados
+def ejecutar_analisis(ruta_carpeta, max_comparaciones=25):
+    """Ejecuta el análisis completo de similitud entre textos sin depender de etiquetas."""
     tiempo_inicio = time.time()
     
     # Verificar que existe la carpeta
@@ -438,111 +671,180 @@ def ejecutar_analisis(ruta_carpeta):
             "error": f"La carpeta {ruta_carpeta} no existe"
         }
     
-    # Verificar que existe el archivo original
-    archivo_original = os.path.join(ruta_carpeta, "original.txt")
-    if not os.path.exists(archivo_original):
-        archivo_original = os.path.join(ruta_carpeta, "Dokumen Teks", "original.txt")
-        if not os.path.exists(archivo_original):
-            return {
-                "error": f"No se encontró el archivo original.txt en {ruta_carpeta}"
-            }
+    # Verificar que existen las subcarpetas 'Original' y 'Copy'
+    ruta_original = os.path.join(ruta_carpeta, "Original")
+    ruta_copy = os.path.join(ruta_carpeta, "Copy")
     
-    # Leer texto original
-    try:
-        with open(archivo_original, 'r', encoding='utf-8') as f:
-            texto_original = preprocess_text(f.read())
-    except Exception as e:
+    if not os.path.exists(ruta_original) or not os.path.exists(ruta_copy):
         return {
-            "error": f"Error al leer el archivo original: {e}"
+            "error": f"No se encontraron las carpetas 'Original' y 'Copy' en {ruta_carpeta}"
         }
     
-    # Preparar archivos a procesar
-    archivos = []
-    for nombre_archivo in os.listdir(ruta_carpeta):
-        if nombre_archivo == 'original.txt' or not nombre_archivo.endswith('.txt'):
-            continue
-        archivos.append(nombre_archivo)
+    # Listar archivos originales y copias
+    archivos_originales = [f for f in os.listdir(ruta_original) if f.endswith('.txt')]
+    archivos_copia = [f for f in os.listdir(ruta_copy) if f.endswith('.txt')]
     
-    # Si no hay archivos para comparar
-    if not archivos:
+    if not archivos_originales or not archivos_copia:
         return {
-            "error": "No se encontraron archivos para comparar con el original"
+            "error": f"No se encontraron archivos .txt en las carpetas 'Original' o 'Copy'"
         }
     
-    # Procesar archivos (secuencial o paralelo)
+    # Limitar el número de comparaciones seleccionando un subconjunto de archivos
+    if len(archivos_originales) * len(archivos_copia) > max_comparaciones:
+        # Seleccionar un número equilibrado de archivos
+        import random
+        random.shuffle(archivos_originales)
+        random.shuffle(archivos_copia)
+        
+        # Calcular cuántos archivos de cada tipo necesitamos para acercarnos al máximo
+        from math import sqrt
+        n_originales = min(len(archivos_originales), int(sqrt(max_comparaciones)))
+        n_copias = min(len(archivos_copia), max_comparaciones // n_originales)
+        
+        archivos_originales_seleccionados = archivos_originales[:n_originales]
+        archivos_copia_seleccionados = archivos_copia[:n_copias]
+    else:
+        archivos_originales_seleccionados = archivos_originales
+        archivos_copia_seleccionados = archivos_copia
+    
+    total_comparaciones = len(archivos_originales_seleccionados) * len(archivos_copia_seleccionados)
+    print(f"Realizando {total_comparaciones} comparaciones (de un total posible de {len(archivos_originales) * len(archivos_copia)})")
+    
+    # Procesar cada combinación de archivo original con archivos de copia
     resultados = []
-    total_archivos = len(archivos)
-    print(f"Procesando {total_archivos} archivos...")
     
     # Determinar número óptimo de workers
-    max_workers = min(os.cpu_count(), 8)  # Limitar a 8 workers máximo para evitar sobrecarga
+    max_workers = min(os.cpu_count(), 4)  # Limitar a 4 workers
+    
+    comparaciones_realizadas = 0
     
     try:
-        # Procesamiento paralelo con chunks para mejor rendimiento
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Crear chunks de archivos para procesar en lotes
-            chunk_size = max(1, total_archivos // (max_workers * 2))
-            archivos_chunks = [archivos[i:i + chunk_size] for i in range(0, len(archivos), chunk_size)]
+        # Procesamiento de comparaciones
+        for archivo_original in archivos_originales_seleccionados:
+            ruta_completa_original = os.path.join(ruta_original, archivo_original)
             
-            # Función para procesar un chunk completo
-            def procesar_chunk(chunk):
-                return [procesar_archivo(nombre, ruta_carpeta, texto_original) for nombre in chunk]
+            # Leer texto original
+            try:
+                with open(ruta_completa_original, 'r', encoding='utf-8') as f:
+                    texto_original = preprocess_text(f.read())
+            except Exception as e:
+                print(f"Error al leer el archivo original {archivo_original}: {e}")
+                continue
             
-            # Enviar chunks para procesamiento
-            futures = [executor.submit(procesar_chunk, chunk) for chunk in archivos_chunks]
-            
-            # Recolectar resultados con seguimiento de progreso
-            completados = 0
-            for future in futures:
-                chunk_resultados = future.result()
-                resultados.extend(chunk_resultados)
-                completados += len(chunk_resultados)
-                print(f"Progreso: {completados}/{total_archivos} archivos procesados ({(completados/total_archivos)*100:.1f}%)")
+            # Procesar cada archivo de copia con este original
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                # Función para procesar una comparación
+                def procesar_comparacion(archivo_copia):
+                    ruta_completa_copia = os.path.join(ruta_copy, archivo_copia)
+                    
+                    try:
+                        with open(ruta_completa_copia, 'r', encoding='utf-8') as f:
+                            texto_copia = preprocess_text(f.read())
+                        
+                        # Calcular similitudes
+                        resultados_similitud = calcular_similitud_combinada(texto_original, texto_copia)
+                        
+                        # Preparar resultado
+                        resultado = {
+                            "original": archivo_original,
+                            "similar": archivo_copia,
+                            "similitud": resultados_similitud['cos_COMBINADO'],
+                            "nivel": resultados_similitud['pred_COMBINADO']
+                        }
+                        
+                        # Añadir todas las métricas calculadas
+                        resultado.update(resultados_similitud)
+                        
+                        return resultado
+                    
+                    except Exception as e:
+                        print(f"Error al procesar el archivo {archivo_copia}: {e}")
+                        return {
+                            "original": archivo_original,
+                            "similar": archivo_copia,
+                            "error": str(e)
+                        }
+                
+                # Enviar todas las comparaciones para procesamiento
+                futures = [executor.submit(procesar_comparacion, archivo_copia) for archivo_copia in archivos_copia_seleccionados]
+                
+                # Recolectar resultados
+                for future in futures:
+                    resultado = future.result()
+                    resultados.append(resultado)
+                    comparaciones_realizadas += 1
+                    
+                    # Mostrar progreso
+                    if comparaciones_realizadas % 5 == 0 or comparaciones_realizadas == total_comparaciones:
+                        print(f"Progreso: {comparaciones_realizadas}/{total_comparaciones} comparaciones ({(comparaciones_realizadas/total_comparaciones)*100:.1f}%)")
+    
     except Exception as e:
-        # Fallback a procesamiento secuencial si falla el paralelo
+        # Fallback a procesamiento secuencial
         print(f"Error en procesamiento paralelo: {e}. Usando procesamiento secuencial...")
-        for i, nombre in enumerate(archivos):
-            resultado = procesar_archivo(nombre, ruta_carpeta, texto_original)
-            resultados.append(resultado)
-            if (i+1) % 5 == 0 or (i+1) == len(archivos):
-                print(f"Progreso: {i+1}/{total_archivos} archivos procesados ({((i+1)/total_archivos)*100:.1f}%)")
-
+        for archivo_original in archivos_originales_seleccionados:
+            ruta_completa_original = os.path.join(ruta_original, archivo_original)
+            
+            try:
+                with open(ruta_completa_original, 'r', encoding='utf-8') as f:
+                    texto_original = preprocess_text(f.read())
+                    
+                for archivo_copia in archivos_copia_seleccionados:
+                    ruta_completa_copia = os.path.join(ruta_copy, archivo_copia)
+                    
+                    try:
+                        with open(ruta_completa_copia, 'r', encoding='utf-8') as f:
+                            texto_copia = preprocess_text(f.read())
+                        
+                        resultados_similitud = calcular_similitud_combinada(texto_original, texto_copia)
+                        
+                        resultado = {
+                            "original": archivo_original,
+                            "similar": archivo_copia,
+                            "similitud": resultados_similitud['cos_COMBINADO'],
+                            "nivel": resultados_similitud['pred_COMBINADO']
+                        }
+                        
+                        resultado.update(resultados_similitud)
+                        resultados.append(resultado)
+                        
+                        comparaciones_realizadas += 1
+                        if comparaciones_realizadas % 5 == 0 or comparaciones_realizadas == total_comparaciones:
+                            print(f"Progreso: {comparaciones_realizadas}/{total_comparaciones} comparaciones ({(comparaciones_realizadas/total_comparaciones)*100:.1f}%)")
+                    
+                    except Exception as e:
+                        print(f"Error al procesar el archivo {archivo_copia}: {e}")
+                        resultados.append({
+                            "original": archivo_original,
+                            "similar": archivo_copia,
+                            "error": str(e)
+                        })
+            
+            except Exception as e:
+                print(f"Error al leer el archivo original {archivo_original}: {e}")
+                continue
     
     # Crear DataFrame con resultados
     try:
         df_resultados = pd.DataFrame(resultados)
         
-        # Contar aciertos por método
-        aciertos = {}
-        for metodo in ['BOW', 'TFIDF', 'MARKOV', 'SEMANTICO', 'NGRAMA_PALABRA', 'NGRAMA_CARACTER', 'COMBINADO']:
-            col_acierto = f"acierto_{metodo}"
-            if col_acierto in df_resultados.columns:
-                aciertos[metodo] = df_resultados[col_acierto].sum()
-        
-        # Evaluar modelo
-        metricas = evaluar_modelo(df_resultados)
-        
         # Guardar resultados a CSV
         ruta_salida = os.path.join(ruta_carpeta, "resultados_similitud.csv")
         df_resultados.to_csv(ruta_salida, index=False)
         
-        # Guardar métricas
-        ruta_metricas = os.path.join(ruta_carpeta, "metricas_evaluacion.json")
-        with open(ruta_metricas, 'w', encoding='utf-8') as f:
-            json.dump(metricas, f, indent=4)
-        
         tiempo_total = time.time() - tiempo_inicio
         
-        # Crear resultados visuales
-        crear_visualizaciones(df_resultados, ruta_carpeta)
+        # Crear visualizaciones para datos no etiquetados
+        crear_visualizaciones_no_etiquetadas(df_resultados, ruta_carpeta)
+        
+        # Realizar análisis de clustering si hay suficientes datos
+        if len(df_resultados) >= 10:
+            realizar_clustering(df_resultados, ruta_carpeta)
         
         return {
             "tiempo_ejecucion": tiempo_total,
             "total_documentos": len(resultados),
-            "aciertos": aciertos,
-            "metricas": metricas,
             "ruta_resultados": ruta_salida,
-            "archivos_procesados": archivos,
+            "archivos_procesados": [f"{o} vs {c}" for o in archivos_originales_seleccionados for c in archivos_copia_seleccionados],
             "df_resultados": df_resultados,
         }
         
@@ -551,8 +853,8 @@ def ejecutar_analisis(ruta_carpeta):
             "error": f"Error al crear resultados: {e}",
             "resultados_parciales": resultados
         }
-
-# Crear visualizaciones
+        
+# Actualizar la función crear_visualizaciones para manejar el nuevo formato de datos
 def crear_visualizaciones(df_resultados, ruta_carpeta):
     """Crea visualizaciones de resultados."""
     try:
@@ -562,11 +864,14 @@ def crear_visualizaciones(df_resultados, ruta_carpeta):
         metodos = ['BOW', 'TFIDF', 'SEMANTICO', 'NGRAMA_PALABRA', 'NGRAMA_CARACTER', 'MARKOV', 'COMBINADO']
         colores = ['blue', 'green', 'red', 'purple', 'orange', 'brown', 'black']
         
+        # Crear un identificador único para cada comparación
+        df_resultados['id_comparacion'] = df_resultados.apply(lambda row: f"{row['original']} vs {row['similar']}", axis=1)
+        
         for i, metodo in enumerate(metodos):
             col = f"cos_{metodo}"
             if col in df_resultados.columns:
                 plt.scatter(
-                    df_resultados.index, 
+                    range(len(df_resultados)), 
                     df_resultados[col],
                     alpha=0.7,
                     label=metodo,
@@ -574,8 +879,9 @@ def crear_visualizaciones(df_resultados, ruta_carpeta):
                 )
         
         plt.title('Comparación de Similitudes por Método')
-        plt.xlabel('Documento')
+        plt.xlabel('Comparación (Documento Original vs Copia)')
         plt.ylabel('Puntuación de Similitud')
+        plt.xticks([])  # Ocultar etiquetas del eje x porque pueden ser muchas
         plt.grid(True, alpha=0.3)
         plt.legend()
         plt.tight_layout()
@@ -584,27 +890,35 @@ def crear_visualizaciones(df_resultados, ruta_carpeta):
         plt.savefig(ruta_comparacion)
         plt.close()
         
-        # 2. Matriz de confusión para método combinado
-        if 'pred_COMBINADO' in df_resultados.columns and 'precargado' in df_resultados.columns:
-            etiquetas = ['plagio', 'sospechoso', 'original']
-            cm = confusion_matrix(
-                df_resultados['precargado'], 
-                df_resultados['pred_COMBINADO'],
-                labels=etiquetas
-            )
+        # 2. Matriz de confusión para método combinado (solo si hay etiquetas válidas)
+        if ('pred_COMBINADO' in df_resultados.columns and 
+            'precargado' in df_resultados.columns and 
+            df_resultados['precargado'].nunique() > 1):
             
-            plt.figure(figsize=(8, 6))
-            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                       xticklabels=etiquetas,
-                       yticklabels=etiquetas)
-            plt.title('Matriz de Confusión - Método Combinado')
-            plt.xlabel('Predicción')
-            plt.ylabel('Real')
-            plt.tight_layout()
+            etiquetas = sorted(df_resultados['precargado'].unique())
             
-            ruta_matriz = os.path.join(ruta_carpeta, 'matriz_confusion_combinado.png')
-            plt.savefig(ruta_matriz)
-            plt.close()
+            # Filtrar filas con precargado desconocido
+            df_filtrado = df_resultados[df_resultados['precargado'] != 'unknown']
+            
+            if not df_filtrado.empty:
+                cm = confusion_matrix(
+                    df_filtrado['precargado'], 
+                    df_filtrado['pred_COMBINADO'],
+                    labels=etiquetas
+                )
+                
+                plt.figure(figsize=(8, 6))
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                           xticklabels=etiquetas,
+                           yticklabels=etiquetas)
+                plt.title('Matriz de Confusión - Método Combinado')
+                plt.xlabel('Predicción')
+                plt.ylabel('Real')
+                plt.tight_layout()
+                
+                ruta_matriz = os.path.join(ruta_carpeta, 'matriz_confusion_combinado.png')
+                plt.savefig(ruta_matriz)
+                plt.close()
         
     except Exception as e:
         print(f"Error al crear visualizaciones: {e}")

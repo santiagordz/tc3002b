@@ -7,13 +7,11 @@
         "similitud_std": 0.1388772626234911
     },
     "distribucion": {
-        "original": 57,
-        "sospechoso": 41,
+        "original": 98,
         "plagio": 2
     },
     "porcentajes": {
-        "original": 0.57,
-        "sospechoso": 0.41,
+        "original": 0.98,
         "plagio": 0.02
     }
 }
