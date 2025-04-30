@@ -1,0 +1,7 @@
+original,similar,precargado,similitud_embeddings,nivel_predicho,acierto
+original.txt,medium_paraphrased.txt,medium,0.89913195,medium,True
+original.txt,high_minimal_changes.txt,high,0.9943117,high,True
+original.txt,low_different_perspective.txt,low,0.31144518,low,True
+original.txt,low_same_topic.txt,low,0.8677403,medium,False
+original.txt,medium_restructured.txt,medium,0.94075847,high,False
+original.txt,high_word_replacement.txt,high,0.9710822,high,True
