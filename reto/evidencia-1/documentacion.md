@@ -4,7 +4,7 @@
 
 ### Selección de Datos
 
-Para el desarrollo y evaluación de este modelo de detección de plagio, se utilizó el conjunto de datos "Dokumen Teks". Este conjunto de datos está estructurado en dos carpetas principales:
+Para el desarrollo y evaluación de este modelo de detección de plagio, se utilizó el conjunto de datos "Dokumen Teks", disponible públicamente en Kaggle (<mcurl name="Plagiarism Document Text" url="https://www.kaggle.com/datasets/fajarpanaungi/plagiarism-document-text"></mcurl>). Este conjunto de datos está estructurado en dos carpetas principales:
 
 1.  **Original**: Contiene los documentos fuente que sirven como referencia.
 2.  **Copy**: Contiene documentos que son versiones modificadas o copias de los documentos originales, diseñados para simular diferentes escenarios de plagio o similitud.
@@ -38,8 +38,8 @@ El análisis reveló que los textos con similitud alta comparten una gran propor
 El modelo de detección de plagio se construyó utilizando embeddings semánticos, específicamente el Universal Sentence Encoder (USE) de Google. El proceso de construcción siguió estos pasos:
 
 1. **Selección del modelo de embeddings**:
-   - Se eligió el Universal Sentence Encoder por su capacidad para capturar el significado semántico de los textos, independientemente de la estructura sintáctica.
-   - Este modelo convierte textos en vectores de 512 dimensiones que representan su significado semántico.
+   - Se eligió el **Universal Sentence Encoder (USE)** de Google, accesible a través de TensorFlow Hub (<mcurl name="TensorFlow Hub - Universal Sentence Encoder" url="https://tfhub.dev/google/universal-sentence-encoder/4"></mcurl>). Este modelo es conocido por su habilidad para entender el significado general de frases y párrafos, más allá de las palabras individuales.
+   - El USE transforma cada texto en un "embedding" o vector numérico de 512 dimensiones. Este vector captura la esencia semántica del texto, permitiendo comparar significados incluso si las palabras exactas son diferentes.
 
 2. **Implementación del pipeline de procesamiento**:
    - Carga de pares de archivos (original y sospechoso).
@@ -66,19 +66,27 @@ El modelo final compara pares de documentos (original vs. sospechoso) utilizando
 
 ### Presentación de Hallazgos
 
-El modelo de detección de plagio basado en embeddings semánticos fue evaluado utilizando el conjunto de datos descrito anteriormente. Los resultados principales son:
+El modelo de detección de plagio basado en embeddings semánticos fue evaluado utilizando el conjunto de datos "Dokumen Teks". A continuación, se presentan los hallazgos clave y visualizaciones generadas:
+
+![Histograma de Similitud](./resultados/histograma_similitud.png)
+*Figura 1: Distribución de las puntuaciones de similitud coseno calculadas para todos los pares de documentos.*
 
 1. **Resultados de la Comparación**:
    - El script procesa cada par de archivos (original de la carpeta `Original` y su correspondiente en `Copy`).
    - Para cada par, calcula la similitud coseno utilizando embeddings semánticos.
    - Clasifica el resultado como 'plagio', 'sospechoso' u 'original' según los umbrales definidos (0.70 y 0.50).
-   - Genera un archivo CSV (`resultados_similitud.csv`) y un JSON (`metricas_similitud.json`) que detallan la similitud, clasificación y confianza para cada par de documentos analizado.
-   *(Nota: Las métricas de rendimiento como precisión, recall y F1-score requerirían etiquetas de verdad fundamental (ground truth) para cada par de documentos en el dataset 'Dokumen Teks', las cuales no se proporcionan explícitamente en el conjunto de datos original ni se generan en el script actual. La evaluación se centra en la similitud calculada y la clasificación resultante).*
+   - Genera un archivo CSV (`resultados_similitud.csv`) que detalla la similitud, clasificación y confianza para cada par de documentos analizado, y un archivo JSON (`metricas_similitud.json`) con métricas agregadas.
+   *(Nota: La evaluación se centra en la similitud calculada y la clasificación resultante, ya que el dataset original no incluye etiquetas de "verdad fundamental" para calcular métricas estándar como precisión o recall).*
 
 2. **Análisis de Resultados por Clasificación**:
-   - Los resultados muestran la distribución de los pares de documentos entre las categorías 'plagio', 'sospechoso' y 'original'.
-   - Se puede observar qué pares alcanzan los umbrales más altos de similitud (plagio) y cuáles presentan similitudes intermedias (sospechoso) o bajas (original).
-   - El análisis cualitativo de los textos correspondientes a cada categoría puede ayudar a validar si los umbrales capturan adecuadamente los diferentes niveles de modificación textual.
+   - Los resultados muestran cómo se distribuyen los pares de documentos entre las categorías 'plagio', 'sospechoso' y 'original', según los umbrales definidos.
+   - Se observa qué proporción de pares cae en cada categoría, indicando la frecuencia de alta, media y baja similitud en el dataset.
+
+   ![Distribución de Clasificaciones](./resultados/distribucion_clasificaciones.png)
+   *Figura 2: Gráfico de barras mostrando el número de pares de documentos en cada categoría de clasificación (Plagio, Sospechoso, Original).* 
+
+   ![Similitud vs Confianza](./resultados/similitud_vs_confianza.png)
+   *Figura 3: Gráfico de dispersión que muestra la relación entre la puntuación de similitud y el nivel de confianza para cada par.*
 
 3. **Comparación con estudios previos**:
    - Los embeddings semánticos muestran un rendimiento superior a métodos tradicionales como Bag of Words (BOW) o TF-IDF en la detección de plagio con paráfrasis.
@@ -98,34 +106,34 @@ Los resultados generados (archivos CSV y JSON) proporcionan una cuantificación 
 
 #### Principales hallazgos y contribuciones
 
-El trabajo implementado demuestra que los embeddings semánticos, específicamente el Universal Sentence Encoder, proporcionan una base sólida para cuantificar la similitud conceptual entre pares de textos. El sistema clasifica eficazmente los pares en categorías de 'plagio', 'sospechoso' u 'original' basándose en umbrales de similitud coseno predefinidos (0.70 y 0.50).
+El trabajo implementado demuestra que los embeddings semánticos, específicamente el Universal Sentence Encoder, proporcionan una base sólida para cuantificar la similitud conceptual entre pares de textos. El sistema clasifica eficazmente los pares en categorías de **'plagio'**, **'sospechoso'** u **'original'** basándose en umbrales de similitud coseno predefinidos (0.70 para plagio y 0.50 para sospechoso).
 
-Una contribución clave es la implementación de un sistema claro de comparación por pares que no solo mide la similitud sino que la categoriza en niveles accionables ('plagio', 'sospechoso', 'original'), proporcionando además una métrica de confianza. Este enfoque va más allá de la simple detección de similitud y ofrece una interpretación directa del resultado.
+Una contribución clave es la implementación de un sistema claro de comparación por pares que no solo mide la similitud, sino que la **categoriza en niveles interpretables** ('plagio', 'sospechoso', 'original'), proporcionando además una **métrica de confianza**. Esta confianza indica qué tan cerca está la puntuación de similitud del siguiente umbral, dando una idea de la seguridad de la clasificación.
 
 #### Implicaciones prácticas y teóricas
 
-Desde el punto de vista práctico, este sistema puede implementarse en entornos educativos y académicos para analizar documentos sospechosos comparándolos con fuentes originales. La clasificación tripartita ('plagio', 'sospechoso', 'original') ayuda a priorizar la revisión manual. La dependencia exclusiva de embeddings semánticos simplifica la implementación.
+Desde el punto de vista práctico, este sistema puede ser una **herramienta útil en entornos educativos** para una primera revisión de trabajos. Ayuda a identificar documentos que podrían requerir una inspección más detallada por parte de un profesor o revisor. La clasificación ('plagio', 'sospechoso', 'original') facilita priorizar qué casos necesitan atención humana. Al basarse solo en embeddings, es relativamente sencillo de implementar.
 
-Teóricamente, el trabajo refuerza la utilidad de la similitud semántica capturada por embeddings como un indicador robusto de la relación conceptual entre textos, superando las limitaciones de métodos basados puramente en coincidencias léxicas o sintácticas, especialmente frente a paráfrasis o reestructuraciones.
+Teóricamente, este trabajo confirma que los embeddings semánticos son **eficaces para capturar el significado** de los textos, incluso cuando las palabras o la estructura cambian (como en el caso de la paráfrasis). Esto los hace más robustos que métodos más antiguos que dependen de encontrar las mismas palabras exactas.
 
 #### Limitaciones y trabajo futuro
 
 A pesar de los resultados prometedores, el estudio presenta algunas limitaciones:
 
-1. **Validación de Umbrales**: La efectividad de los umbrales (0.70 y 0.50) depende del corpus específico y del tipo de plagio que se busca detectar. Podrían requerir ajuste o validación con un conjunto de datos etiquetado más grande y diverso para asegurar su generalización.
+1. **Validación de Umbrales**: Los umbrales de similitud (0.70 y 0.50) se eligieron basándose en la experimentación con este dataset. Para asegurar que funcionen bien en otros contextos o con diferentes tipos de documentos, **sería necesario validarlos** con más datos, idealmente con ejemplos etiquetados por expertos.
 
-2. **Ausencia de Ground Truth**: El conjunto de datos "Dokumen Teks" no incluye etiquetas explícitas de nivel de plagio para cada par, lo que impide calcular métricas de rendimiento estándar (precisión, recall) y obliga a una evaluación más cualitativa de los resultados.
+2. **Ausencia de Etiquetas Definitivas (Ground Truth)**: El dataset "Dokumen Teks" no viene con etiquetas que indiquen si cada par es *realmente* plagio, sospechoso u original. Esto significa que no podemos calcular métricas estándar como la precisión (qué porcentaje de los detectados como plagio lo son realmente). La evaluación actual se basa en observar si las puntuaciones de similitud tienen sentido.
 
-3. **Enfoque por Pares**: El sistema actual se enfoca en comparar un documento sospechoso contra uno original específico. No está diseñado para buscar plagio contra una base de datos extensa de documentos fuente.
+3. **Comparación Uno a Uno**: El sistema actual compara un documento sospechoso contra **un único documento original** a la vez. No está diseñado para buscar si un texto ha sido plagiado de una gran colección de posibles fuentes (como una base de datos de artículos o trabajos previos).
 
 Para abordar estas limitaciones, el trabajo futuro podría incluir:
 
-1. **Validación y Ajuste de Umbrales**: Realizar una evaluación rigurosa utilizando un conjunto de datos con etiquetas de verdad fundamental para validar y potencialmente ajustar los umbrales de clasificación.
+1. **Validación Rigurosa**: Usar un conjunto de datos con **etiquetas de verdad fundamental** (ground truth) para medir objetivamente el rendimiento del sistema (precisión, recall) y ajustar los umbrales si es necesario.
 
-2. Exploración de modelos de embeddings más avanzados, como BERT o GPT, que podrían capturar matices semánticos con mayor precisión.
+2. **Explorar Otros Modelos**: Probar con modelos de embeddings más recientes o potentes (como variantes de BERT o modelos similares) para ver si pueden capturar el significado con aún más precisión.
 
-3. **Evaluación con Diversos Tipos de Plagio**: Probar el sistema con ejemplos de diferentes tipos de plagio (copia literal, paráfrasis, mosaico, etc.) para entender mejor sus fortalezas y debilidades.
+3. **Probar con Diferentes Tipos de Plagio**: Evaluar cómo funciona el sistema con distintos tipos de plagio (copia directa, paráfrasis intensa, plagio mosaico donde se mezclan varias fuentes) para entender mejor dónde es más efectivo y dónde podría fallar.
 
-4. **Integración con Bases de Datos**: Extender el sistema para permitir la comparación de un documento sospechoso contra una colección más grande de documentos fuente.
+4. **Búsqueda en Bases de Datos**: Adaptar el enfoque para que pueda comparar un documento sospechoso contra una **colección grande de documentos** (no solo uno a uno), lo cual es más realista para detectar plagio en la práctica.
 
-En conclusión, el sistema implementado basado en embeddings semánticos ofrece un método práctico y efectivo para cuantificar y clasificar la similitud entre pares de documentos. Proporciona una base sólida para la detección de plagio, especialmente útil contra modificaciones no literales, aunque su rendimiento óptimo depende de la validación y posible ajuste de los umbrales de clasificación.
+En resumen, este proyecto muestra que usar embeddings semánticos como el Universal Sentence Encoder es una forma **práctica y bastante efectiva** de medir qué tan parecidos son dos textos en cuanto a su significado. El sistema clasifica bien los pares de documentos y puede ser una herramienta útil para una primera detección de posible plagio, sobre todo cuando el texto ha sido modificado (paráfrasis). Sin embargo, para confiar plenamente en los resultados, sería importante validar los umbrales con más datos.
