@@ -1,0 +1,19 @@
+{
+    "estadisticas": {
+        "similitud_media": 0.4599882599711418,
+        "similitud_mediana": 0.4788477122783661,
+        "similitud_min": 0.11134836077690125,
+        "similitud_max": 0.7186208367347717,
+        "similitud_std": 0.1388772626234911
+    },
+    "distribucion": {
+        "original": 57,
+        "sospechoso": 41,
+        "plagio": 2
+    },
+    "porcentajes": {
+        "original": 0.57,
+        "sospechoso": 0.41,
+        "plagio": 0.02
+    }
+}

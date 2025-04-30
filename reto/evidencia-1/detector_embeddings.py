@@ -10,12 +10,19 @@ from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
 import tensorflow as tf
 import tensorflow_hub as hub
 import json
+from json import JSONEncoder
 
 # Configuración global
 CONFIG = {
-    'umbrales': {
-        'alto': 0.90,
-        'medio': 0.60
+    # Configuración para análisis de similitud
+    'similitud': {
+        'umbral_plagio': 0.70,  # Umbral para considerar plagio
+        'umbral_sospechoso': 0.50  # Umbral para considerar sospechoso
+    },
+    # Rutas de carpetas
+    'rutas': {
+        'documentos_originales': '/Users/santiago/School/tc3002b/reto/Dokumen Teks/Original',
+        'documentos_sospechosos': '/Users/santiago/School/tc3002b/reto/Dokumen Teks/Copy'
     }
 }
 
@@ -41,16 +48,18 @@ def cargar_modelo_embeddings():
         
         try:
             # Intentar usar modelo previamente descargado
-            if os.path.exists('../modelos/use_model'):
-                EMBEDDINGS_MODEL = hub.load('../modelos/use_model')
+            if os.path.exists('/Users/santiago/School/tc3002b/reto/modelos'):
+                print("Cargando modelo de embeddings desde la carpeta local...")
+                EMBEDDINGS_MODEL = hub.load('/Users/santiago/School/tc3002b/reto/modelos/use_model')
             else:
+                print("Modelo no encontrado. Descargando...")
                 # Descargar y guardar modelo
                 EMBEDDINGS_MODEL = hub.load("https://tfhub.dev/google/universal-sentence-encoder/4")
                 # Crear directorio si no existe
-                if not os.path.exists('../modelos'):
-                    os.makedirs('../modelos')
+                if not os.path.exists('/Users/santiago/School/tc3002b/reto/modelos'):
+                    os.makedirs('/Users/santiago/School/tc3002b/reto/modelos')
                 # Guardar para uso futuro
-                tf.saved_model.save(EMBEDDINGS_MODEL, '../modelos/use_model')
+                tf.saved_model.save(EMBEDDINGS_MODEL, '/Users/santiago/School/tc3002b/reto/modelos/use_model')
             
             print("Modelo de embeddings cargado con éxito.")
         except Exception as e:
@@ -86,16 +95,40 @@ def obtener_embeddings_semanticos(textos):
         return np.random.rand(len(textos), 512)
 
 def clasificar_similitud(sim):
-    """Clasifica el nivel de similitud basado en umbrales."""
-    if sim >= CONFIG['umbrales']['alto']:
-        return 'high'
-    elif sim >= CONFIG['umbrales']['medio']:
-        return 'medium'
+    """Clasifica el nivel de similitud basado en umbrales.
+    
+    Args:
+        sim: Valor de similitud entre 0 y 1
+        
+    Returns:
+        dict: Diccionario con la clasificación y nivel de confianza
+    """
+    if sim >= CONFIG['similitud']['umbral_plagio']:
+        return {
+            'clasificacion': 'plagio',
+            'confianza': (sim - CONFIG['similitud']['umbral_plagio']) / (1 - CONFIG['similitud']['umbral_plagio'])
+        }
+    elif sim >= CONFIG['similitud']['umbral_sospechoso']:
+        return {
+            'clasificacion': 'sospechoso',
+            'confianza': (sim - CONFIG['similitud']['umbral_sospechoso']) / (CONFIG['similitud']['umbral_plagio'] - CONFIG['similitud']['umbral_sospechoso'])
+        }
     else:
-        return 'low'
+        return {
+            'clasificacion': 'original',
+            'confianza': 1 - (sim / CONFIG['similitud']['umbral_sospechoso'])
+        }
 
 def comparar_textos_embeddings(texto1, texto2):
-    """Compara dos textos usando embeddings semánticos."""
+    """Compara dos textos usando embeddings semánticos.
+    
+    Args:
+        texto1: Texto original
+        texto2: Texto a comparar
+        
+    Returns:
+        dict: Diccionario con métricas de similitud
+    """
     texto1_procesado = preprocess_text(texto1)
     texto2_procesado = preprocess_text(texto2)
     
@@ -103,198 +136,245 @@ def comparar_textos_embeddings(texto1, texto2):
     embeddings = obtener_embeddings_semanticos([texto1_procesado, texto2_procesado])
     
     # Calcular similitud coseno
-    similitud = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
+    similitud = float(cosine_similarity([embeddings[0]], [embeddings[1]])[0][0])
     
     # Clasificar nivel de similitud
-    nivel = clasificar_similitud(similitud)
+    clasificacion = clasificar_similitud(similitud)
     
     return {
         'similitud': similitud,
-        'nivel': nivel
+        'clasificacion': clasificacion['clasificacion'],
+        'confianza': clasificacion['confianza']
     }
 
-def procesar_archivo(nombre_archivo, ruta_carpeta, texto_original):
-    """Procesa un archivo de texto y calcula similitud con el original usando embeddings."""
+def procesar_archivo(archivo_original, archivo_sospechoso):
+    """Procesa un par de archivos y calcula similitud entre ellos usando embeddings.
     
-    archivo_similar = os.path.join(ruta_carpeta, nombre_archivo)
-    
-    try:
-        with open(archivo_similar, 'r', encoding='utf-8') as f:
-            texto_similar = preprocess_text(f.read())
+    Args:
+        archivo_original: Ruta al archivo original
+        archivo_sospechoso: Ruta al archivo sospechoso
         
-        # Extraer etiqueta precargada del nombre del archivo
-        if nombre_archivo.startswith("high"):
-            precargado = "high"
-        elif nombre_archivo.startswith("moderate") or nombre_archivo.startswith("medium"):
-            precargado = "medium"
-        elif nombre_archivo.startswith("low"):
-            precargado = "low"
-        else:
-            precargado = "unknown"
+    Returns:
+        dict: Resultado del análisis de similitud
+    """
+    try:
+        # Extraer IDs de los nombres de archivo
+        id_original = os.path.basename(archivo_original).replace('source-document', '').replace('.txt', '')
+        id_sospechoso = os.path.basename(archivo_sospechoso).replace('suspicious-document', '').replace('.txt', '')
+        
+        # Leer contenidos
+        with open(archivo_original, 'r', encoding='utf-8') as f:
+            texto_original = preprocess_text(f.read())
+            
+        with open(archivo_sospechoso, 'r', encoding='utf-8') as f:
+            texto_sospechoso = preprocess_text(f.read())
         
         # Calcular similitud con embeddings
-        resultado_similitud = comparar_textos_embeddings(texto_original, texto_similar)
+        resultado_similitud = comparar_textos_embeddings(texto_original, texto_sospechoso)
         
         # Preparar resultado
         resultado = {
-            "original": "original.txt",
-            "similar": nombre_archivo,
-            "precargado": precargado,
-            "similitud_embeddings": resultado_similitud['similitud'],
-            "nivel_predicho": resultado_similitud['nivel'],
-            "acierto": resultado_similitud['nivel'] == precargado
+            "id_original": id_original,
+            "id_sospechoso": id_sospechoso,
+            "archivo_original": os.path.basename(archivo_original),
+            "archivo_sospechoso": os.path.basename(archivo_sospechoso),
+            "similitud": float(resultado_similitud['similitud']),  # Convertir a float Python estándar
+            "clasificacion": resultado_similitud['clasificacion'],
+            "confianza": float(resultado_similitud['confianza'])  # Convertir a float Python estándar
         }
         
         return resultado
     
     except Exception as e:
-        print(f"Error al procesar el archivo {nombre_archivo}: {e}")
+        print(f"Error al procesar los archivos {archivo_original} y {archivo_sospechoso}: {e}")
         return {
-            "original": "original.txt",
-            "similar": nombre_archivo,
+            "id_original": id_original if 'id_original' in locals() else 'desconocido',
+            "id_sospechoso": id_sospechoso if 'id_sospechoso' in locals() else 'desconocido',
+            "archivo_original": os.path.basename(archivo_original),
+            "archivo_sospechoso": os.path.basename(archivo_sospechoso),
             "error": str(e)
         }
 
-def evaluar_modelo(df_resultados):
-    """Evalúa el modelo con múltiples métricas."""
+def evaluar_resultados(df_resultados):
+    """Evalúa los resultados del análisis de similitud.
+    
+    Args:
+        df_resultados: DataFrame con los resultados del análisis
+        
+    Returns:
+        dict: Métricas y estadísticas del análisis
+    """
     metricas = {}
     
-    # Evaluar el método de embeddings
-    if "nivel_predicho" in df_resultados.columns:
-        y_true = df_resultados["precargado"]
-        y_pred = df_resultados["nivel_predicho"]
+    # Estadísticas básicas de similitud
+    metricas["estadisticas"] = {
+        'similitud_media': float(df_resultados["similitud"].mean()),
+        'similitud_mediana': float(df_resultados["similitud"].median()),
+        'similitud_min': float(df_resultados["similitud"].min()),
+        'similitud_max': float(df_resultados["similitud"].max()),
+        'similitud_std': float(df_resultados["similitud"].std()),
+    }
+    
+    # Distribución de clasificaciones
+    if "clasificacion" in df_resultados.columns:
+        # Convertir a diccionario Python estándar
+        conteo_clasificaciones = {k: int(v) for k, v in df_resultados["clasificacion"].value_counts().to_dict().items()}
+        metricas["distribucion"] = conteo_clasificaciones
         
-        # Calcular precisión, recall, f1 para cada clase
-        precision, recall, f1, _ = precision_recall_fscore_support(
-            y_true, y_pred, average=None, labels=['high', 'medium', 'low']
-        )
-        
-        # Calcular exactitud
-        exactitud = (y_true == y_pred).mean()
-        
-        metricas["EMBEDDINGS"] = {
-            'exactitud': exactitud,
-            'precision': dict(zip(['high', 'medium', 'low'], precision)),
-            'recall': dict(zip(['high', 'medium', 'low'], recall)),
-            'f1': dict(zip(['high', 'medium', 'low'], f1)),
-            'matriz_confusion': confusion_matrix(
-                y_true, y_pred, labels=['high', 'medium', 'low']
-            ).tolist()
-        }
+        # Calcular porcentajes
+        total = sum(conteo_clasificaciones.values())
+        metricas["porcentajes"] = {k: float(v/total) for k, v in conteo_clasificaciones.items()}
     
     return metricas
 
 def crear_visualizaciones(df_resultados, ruta_carpeta):
-    """Crea visualizaciones de resultados."""
+    """Crea visualizaciones de resultados del análisis de similitud.
+    
+    Args:
+        df_resultados: DataFrame con los resultados del análisis
+        ruta_carpeta: Carpeta donde guardar las visualizaciones
+    """
     try:
-        # 1. Gráfico de similitudes por documento
+        # 1. Histograma de distribución de similitudes
         plt.figure(figsize=(12, 6))
-        plt.bar(df_resultados['similar'], df_resultados['similitud_embeddings'], color='blue', alpha=0.7)
-        plt.axhline(y=CONFIG['umbrales']['alto'], color='r', linestyle='--', label='Umbral Alto')
-        plt.axhline(y=CONFIG['umbrales']['medio'], color='orange', linestyle='--', label='Umbral Medio')
-        plt.title('Similitud por Documento usando Embeddings')
-        plt.xlabel('Documento')
-        plt.ylabel('Puntuación de Similitud')
-        plt.xticks(rotation=45, ha='right')
+        sns.histplot(df_resultados['similitud'], bins=20, kde=True)
+        plt.axvline(x=CONFIG['similitud']['umbral_plagio'], color='r', linestyle='--', label='Umbral Plagio')
+        plt.axvline(x=CONFIG['similitud']['umbral_sospechoso'], color='orange', linestyle='--', label='Umbral Sospechoso')
+        plt.title('Distribución de Similitudes entre Documentos')
+        plt.xlabel('Puntuación de Similitud')
+        plt.ylabel('Frecuencia')
         plt.grid(True, alpha=0.3)
         plt.legend()
         plt.tight_layout()
         
-        ruta_grafico = os.path.join(ruta_carpeta, 'grafico_similitud_embeddings.png')
-        plt.savefig(ruta_grafico)
+        ruta_histograma = os.path.join(ruta_carpeta, 'histograma_similitud.png')
+        plt.savefig(ruta_histograma)
         plt.close()
         
-        # 2. Matriz de confusión
-        if 'nivel_predicho' in df_resultados.columns and 'precargado' in df_resultados.columns:
-            cm = confusion_matrix(
-                df_resultados['precargado'], 
-                df_resultados['nivel_predicho'],
-                labels=['high', 'medium', 'low']
-            )
-            
-            plt.figure(figsize=(8, 6))
-            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                       xticklabels=['high', 'medium', 'low'],
-                       yticklabels=['high', 'medium', 'low'])
-            plt.title('Matriz de Confusión - Método de Embeddings')
-            plt.xlabel('Predicción')
-            plt.ylabel('Real')
+        # 2. Gráfico de barras por clasificación
+        if 'clasificacion' in df_resultados.columns:
+            conteo = df_resultados['clasificacion'].value_counts()
+            plt.figure(figsize=(10, 6))
+            sns.barplot(x=conteo.index, y=conteo.values)
+            plt.title('Distribución de Clasificaciones')
+            plt.xlabel('Clasificación')
+            plt.ylabel('Cantidad de Documentos')
+            plt.grid(True, alpha=0.3)
             plt.tight_layout()
             
-            ruta_matriz = os.path.join(ruta_carpeta, 'matriz_confusion_embeddings.png')
-            plt.savefig(ruta_matriz)
+            ruta_barras = os.path.join(ruta_carpeta, 'distribucion_clasificaciones.png')
+            plt.savefig(ruta_barras)
+            plt.close()
+        
+        # 3. Scatter plot de similitud vs confianza
+        if 'confianza' in df_resultados.columns:
+            plt.figure(figsize=(10, 6))
+            sns.scatterplot(data=df_resultados, x='similitud', y='confianza', hue='clasificacion', palette='viridis')
+            plt.title('Relación entre Similitud y Confianza')
+            plt.xlabel('Similitud')
+            plt.ylabel('Confianza')
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            
+            ruta_scatter = os.path.join(ruta_carpeta, 'similitud_vs_confianza.png')
+            plt.savefig(ruta_scatter)
             plt.close()
         
     except Exception as e:
         print(f"Error al crear visualizaciones: {e}")
 
-def ejecutar_analisis_embeddings(ruta_carpeta_textos, ruta_carpeta_salida):
-    """Ejecuta el análisis completo de similitud entre textos usando embeddings."""
+def ejecutar_analisis_embeddings(ruta_carpeta_salida=None):
+    """Ejecuta el análisis completo de similitud entre textos usando embeddings.
+    
+    Args:
+        ruta_carpeta_salida: Carpeta donde guardar los resultados
+        
+    Returns:
+        dict: Resultados del análisis
+    """
     tiempo_inicio = time.time()
     
-    # Verificar que existe la carpeta de textos
-    if not os.path.exists(ruta_carpeta_textos):
-        return {
-            "error": f"La carpeta {ruta_carpeta_textos} no existe"
-        }
+    # Obtener rutas de carpetas desde la configuración
+    ruta_originales = CONFIG['rutas']['documentos_originales']
+    ruta_sospechosos = CONFIG['rutas']['documentos_sospechosos']
     
-    # Verificar que existe el archivo original
-    archivo_original = os.path.join(ruta_carpeta_textos, "original.txt")
-    if not os.path.exists(archivo_original):
-        return {
-            "error": f"No se encontró el archivo original.txt en {ruta_carpeta_textos}"
-        }
+    # Verificar que existen las carpetas
+    if not os.path.exists(ruta_originales):
+        return {"error": f"La carpeta de documentos originales {ruta_originales} no existe"}
     
-    # Crear carpeta de salida si no existe
+    if not os.path.exists(ruta_sospechosos):
+        return {"error": f"La carpeta de documentos sospechosos {ruta_sospechosos} no existe"}
+    
+    # Crear carpeta de salida si no existe y no se especificó
+    if ruta_carpeta_salida is None:
+        ruta_carpeta_salida = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resultados")
+    
     if not os.path.exists(ruta_carpeta_salida):
         os.makedirs(ruta_carpeta_salida)
     
-    # Leer texto original
-    try:
-        with open(archivo_original, 'r', encoding='utf-8') as f:
-            texto_original = preprocess_text(f.read())
-    except Exception as e:
-        return {
-            "error": f"Error al leer el archivo original: {e}"
-        }
+    # Obtener lista de archivos originales y sospechosos
+    archivos_originales = [f for f in os.listdir(ruta_originales) if f.endswith('.txt')]
+    archivos_sospechosos = [f for f in os.listdir(ruta_sospechosos) if f.endswith('.txt')]
     
-    # Preparar archivos a procesar
-    archivos = []
-    for nombre_archivo in os.listdir(ruta_carpeta_textos):
-        if nombre_archivo == 'original.txt' or not nombre_archivo.endswith('.txt'):
-            continue
-        archivos.append(nombre_archivo)
+    # Verificar que hay archivos para comparar
+    if not archivos_originales or not archivos_sospechosos:
+        return {"error": "No se encontraron suficientes archivos para comparar"}
     
-    # Si no hay archivos para comparar
-    if not archivos:
-        return {
-            "error": "No se encontraron archivos para comparar con el original"
-        }
+    # Crear pares de archivos para comparar (por ID)
+    pares_archivos = []
+    for archivo_original in archivos_originales:
+        id_original = archivo_original.replace('source-document', '').replace('.txt', '')
+        archivo_sospechoso = f"suspicious-document{id_original}.txt"
+        
+        if archivo_sospechoso in archivos_sospechosos:
+            pares_archivos.append({
+                'original': os.path.join(ruta_originales, archivo_original),
+                'sospechoso': os.path.join(ruta_sospechosos, archivo_sospechoso)
+            })
     
-    # Procesar archivos
+    # Si no hay pares para comparar
+    if not pares_archivos:
+        return {"error": "No se encontraron pares de documentos para comparar"}
+    
+    print(f"Se encontraron {len(pares_archivos)} pares de documentos para analizar")
+    
+    # Procesar pares de archivos
     resultados = []
-    for nombre in archivos:
-        resultado = procesar_archivo(nombre, ruta_carpeta_textos, texto_original)
+    for par in pares_archivos:
+        resultado = procesar_archivo(par['original'], par['sospechoso'])
         resultados.append(resultado)
+        # Mostrar progreso
+        if len(resultados) % 10 == 0:
+            print(f"Procesados {len(resultados)} de {len(pares_archivos)} documentos")
     
     # Crear DataFrame con resultados
     try:
         df_resultados = pd.DataFrame(resultados)
         
-        # Contar aciertos
-        aciertos = df_resultados["acierto"].sum() if "acierto" in df_resultados.columns else 0
-        
-        # Evaluar modelo
-        metricas = evaluar_modelo(df_resultados)
+        # Evaluar resultados
+        metricas = evaluar_resultados(df_resultados)
         
         # Guardar resultados a CSV
-        ruta_salida = os.path.join(ruta_carpeta_salida, "resultados_embeddings.csv")
+        ruta_salida = os.path.join(ruta_carpeta_salida, "resultados_similitud.csv")
         df_resultados.to_csv(ruta_salida, index=False)
         
-        # Guardar métricas
-        ruta_metricas = os.path.join(ruta_carpeta_salida, "metricas_embeddings.json")
+        # Clase personalizada para codificar tipos NumPy a JSON
+        class NumpyEncoder(JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.floating):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, (np.bool_, bool)):
+                    return bool(obj)
+                return super(NumpyEncoder, self).default(obj)
+        
+        # Guardar métricas usando el codificador personalizado
+        ruta_metricas = os.path.join(ruta_carpeta_salida, "metricas_similitud.json")
         with open(ruta_metricas, 'w', encoding='utf-8') as f:
-            json.dump(metricas, f, indent=4)
+            json.dump(metricas, f, indent=4, cls=NumpyEncoder)
         
         tiempo_total = time.time() - tiempo_inicio
         
@@ -304,11 +384,9 @@ def ejecutar_analisis_embeddings(ruta_carpeta_textos, ruta_carpeta_salida):
         return {
             "tiempo_ejecucion": tiempo_total,
             "total_documentos": len(resultados),
-            "aciertos": aciertos,
-            "exactitud": aciertos / len(resultados) if len(resultados) > 0 else 0,
             "metricas": metricas,
             "ruta_resultados": ruta_salida,
-            "archivos_procesados": archivos,
+            "ruta_metricas": ruta_metricas,
             "df_resultados": df_resultados,
         }
         
@@ -319,10 +397,9 @@ def ejecutar_analisis_embeddings(ruta_carpeta_textos, ruta_carpeta_salida):
         }
 
 if __name__ == "__main__":
-    # Ejecutar análisis
+    # Ejecutar análisis con la nueva estructura de carpetas
     resultado = ejecutar_analisis_embeddings(
-        ruta_carpeta_textos="/Users/santiago/School/tc3002b/reto/textos",
-        ruta_carpeta_salida="."
+        ruta_carpeta_salida="/Users/santiago/School/tc3002b/reto/evidencia-1/resultados"
     )
     
     # Mostrar resultados
@@ -331,5 +408,10 @@ if __name__ == "__main__":
     else:
         print(f"Análisis completado en {resultado['tiempo_ejecucion']:.2f} segundos")
         print(f"Total de documentos analizados: {resultado['total_documentos']}")
-        print(f"Exactitud del modelo: {resultado['exactitud']:.2%}")
+        print(f"Distribución de clasificaciones:")
+        for clasificacion, cantidad in resultado['metricas']['distribucion'].items():
+            porcentaje = resultado['metricas']['porcentajes'][clasificacion] * 100
+            print(f"  - {clasificacion}: {cantidad} documentos ({porcentaje:.2f}%)")
         print(f"Resultados guardados en: {resultado['ruta_resultados']}")
+        print(f"Métricas guardadas en: {resultado['ruta_metricas']}")
+        print("\nVisualizaciones generadas en la carpeta de resultados.")
