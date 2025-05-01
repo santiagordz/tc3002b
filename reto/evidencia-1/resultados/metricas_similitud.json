@@ -7,28 +7,28 @@
         "similitud_std": 0.1388772626234911
     },
     "distribucion": {
-        "original": 57,
-        "plagio": 43
+        "original": 98,
+        "plagio": 2
     },
     "porcentajes": {
-        "original": 0.57,
-        "plagio": 0.43
+        "original": 0.98,
+        "plagio": 0.02
     },
-    "silhouette_coefficient": 0.26514666833079653,
-    "cluster_purity": 0.62,
-    "information_gain": 0.12340988873374892,
+    "silhouette_coefficient": 0.22794990888348304,
+    "cluster_purity": 0.98,
+    "information_gain": 0.010352265674593714,
     "analisis_por_clase": {
         "original": {
-            "count": 57,
-            "similitud_media": 0.36642971948573466,
-            "similitud_mediana": 0.38732776045799255,
-            "similitud_std": 0.10257912937937815
+            "count": 98,
+            "similitud_media": 0.4547822490638616,
+            "similitud_mediana": 0.4743117094039917,
+            "similitud_std": 0.1353336840196462
         },
         "plagio": {
-            "count": 43,
-            "similitud_media": 0.5840077206145885,
-            "similitud_mediana": 0.5706703066825867,
-            "similitud_std": 0.06168965808785341
+            "count": 2,
+            "similitud_media": 0.7150827944278717,
+            "similitud_mediana": 0.7150827944278717,
+            "similitud_std": 0.005003547414667807
         }
     }
 }
