@@ -1,0 +1,105 @@
+{
+    "estadisticas": {
+        "similitud_media": 0.659493563354496,
+        "similitud_mediana": 0.7056277487840249,
+        "similitud_min": 0.12404762017629686,
+        "similitud_max": 0.8681579445606556,
+        "similitud_std": 0.178993101535451
+    },
+    "distribucion": {
+        "plagio": 52,
+        "original": 48
+    },
+    "porcentajes": {
+        "plagio": 0.52,
+        "original": 0.48
+    },
+    "metodos": {
+        "BOW": {
+            "media": 0.8084987869922277,
+            "mediana": 0.8890224238102978,
+            "min": 0.014611984598105372,
+            "max": 0.97767359276203,
+            "std": 0.2464873956186694
+        },
+        "TFIDF": {
+            "media": 0.7867445471119849,
+            "mediana": 0.868547462174224,
+            "min": 0.008344802581421937,
+            "max": 0.973006391395427,
+            "std": 0.2508207595155232
+        },
+        "SEMANTICO": {
+            "media": 0.4775197298824787,
+            "mediana": 0.49509401619434357,
+            "min": 0.12164418399333954,
+            "max": 0.7460947036743164,
+            "std": 0.139955278381743
+        },
+        "NGRAMA_PALABRA": {
+            "media": 0.3447431231788352,
+            "mediana": 0.33054032298115066,
+            "min": 0.0,
+            "max": 0.8137175548508757,
+            "std": 0.20709082660619693
+        },
+        "NGRAMA_CARACTER": {
+            "media": 0.823476206089411,
+            "mediana": 0.8839746299139565,
+            "min": 0.1855800150141869,
+            "max": 0.9687100845474597,
+            "std": 0.19228171954872272
+        },
+        "MARKOV": {
+            "media": 0.9016638743587579,
+            "mediana": 0.9288711418456841,
+            "min": 0.49802471970954826,
+            "max": 0.9877374891469413,
+            "std": 0.09186994666524255
+        }
+    },
+    "clustering": {
+        "dbscan_num_clusters": 2,
+        "dbscan_noise_points": 2
+    },
+    "silhouette_coefficient": 0.32815720157197004,
+    "silhouette_kmeans": 0.8581110740402907,
+    "davies_bouldin_index": 0.9596001539174825,
+    "calinski_harabasz_index": 46.030953614469816,
+    "matriz_confusion_kmeans": {
+        "verdadero_negativo": 10,
+        "falso_positivo": 38,
+        "falso_negativo": 0,
+        "verdadero_positivo": 52
+    },
+    "clustering_accuracy": 0.62,
+    "metricas_clustering": {
+        "precision": 0.5777777777777777,
+        "recall": 1.0,
+        "f1_score": 0.7323943661971831
+    },
+    "feature_importance": {
+        "similitud": 0.14745961325249146,
+        "cos_BOW": 0.21435463356079412,
+        "cos_TFIDF": 0.21732877227253103,
+        "cos_SEMANTICO": 0.07922843494950951,
+        "cos_NGRAMA_PALABRA": 0.10292929975792467,
+        "cos_NGRAMA_CARACTER": 0.16439465168308418,
+        "cos_MARKOV": 0.074304594523665
+    },
+    "inter_intra_ratio": 0.9942002179623035,
+    "analisis_por_clase": {
+        "original": {
+            "count": 48,
+            "similitud_media": 0.5439211490747776,
+            "similitud_mediana": 0.6386565419108193,
+            "similitud_std": 0.19799327803345138
+        },
+        "plagio": {
+            "count": 52,
+            "similitud_media": 0.7661757919203903,
+            "similitud_mediana": 0.7555542076963299,
+            "similitud_std": 0.04347623755713582
+        }
+    }
+}

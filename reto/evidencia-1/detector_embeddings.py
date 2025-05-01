@@ -7,6 +7,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
+from sklearn.metrics import silhouette_score
+from scipy.stats import entropy
+import numpy as np
+from sklearn.cluster import KMeans
 import tensorflow as tf
 import tensorflow_hub as hub
 import json
@@ -16,7 +20,7 @@ from json import JSONEncoder
 CONFIG = {
     # Configuración para análisis de similitud
     'similitud': {
-        'umbral_plagio': 0.70,  # Umbral para considerar plagio
+        'umbral_plagio': 0.50,  # Umbral para considerar plagio
     },
     # Rutas de carpetas
     'rutas': {
@@ -218,6 +222,73 @@ def evaluar_resultados(df_resultados):
         # Calcular porcentajes
         total = sum(conteo_clasificaciones.values())
         metricas["porcentajes"] = {k: float(v/total) for k, v in conteo_clasificaciones.items()}
+        
+        # Convertir clasificación a valores numéricos para clustering
+        mapping = {'original': 0, 'plagio': 1}
+        y_true = df_resultados["clasificacion"].map(mapping).values
+        
+        # Preparar datos para clustering
+        X = df_resultados[["similitud", "confianza"]].values
+        
+        # Calcular Silhouette Coefficient si hay suficientes muestras y al menos 2 clases
+        if len(df_resultados) > 2 and len(conteo_clasificaciones) >= 2:
+            try:
+                # Silhouette Coefficient
+                silhouette_avg = silhouette_score(X, y_true)
+                metricas["silhouette_coefficient"] = float(silhouette_avg)
+                
+                # Aplicar K-means clustering (k=2 para original/plagio)
+                kmeans = KMeans(n_clusters=2, random_state=42)
+                y_pred = kmeans.fit_predict(X)
+                
+                # Calcular pureza de clusters
+                contingency_matrix = confusion_matrix(y_true, y_pred)
+                cluster_purity = np.sum(np.max(contingency_matrix, axis=0)) / np.sum(contingency_matrix)
+                metricas["cluster_purity"] = float(cluster_purity)
+                
+                # Calcular Information Gain / Entropía
+                base_entropy = entropy(df_resultados["clasificacion"].value_counts(normalize=True))
+                
+                # Entropía condicional por cluster
+                conditional_entropy = 0
+                for i in range(2):  # Para cada cluster
+                    cluster_size = np.sum(y_pred == i)
+                    if cluster_size > 0:
+                        cluster_probs = []
+                        for j in range(2):  # Para cada clase
+                            count = np.sum((y_pred == i) & (y_true == j))
+                            prob = count / cluster_size if cluster_size > 0 else 0
+                            if prob > 0:
+                                cluster_probs.append(prob)
+                        if cluster_probs:
+                            conditional_entropy += (cluster_size / len(y_pred)) * entropy(cluster_probs)
+                
+                # Information Gain
+                information_gain = base_entropy - conditional_entropy
+                metricas["information_gain"] = float(information_gain)
+                
+                # Métricas de evaluación binaria
+                precision, recall, f1, _ = precision_recall_fscore_support(
+                    y_true, 
+                    df_resultados["similitud"] >= CONFIG['similitud']['umbral_plagio'],
+                    average='binary',
+                    pos_label=1
+                )
+                
+            except Exception as e:
+                print(f"Error al calcular métricas avanzadas: {e}")
+                metricas["error_metricas_avanzadas"] = str(e)
+    
+        # Análisis de distribución de similitud por clase
+        metricas["analisis_por_clase"] = {}
+        for clase in df_resultados["clasificacion"].unique():
+            df_clase = df_resultados[df_resultados["clasificacion"] == clase]
+            metricas["analisis_por_clase"][clase] = {
+                "count": int(len(df_clase)),
+                "similitud_media": float(df_clase["similitud"].mean()),
+                "similitud_mediana": float(df_clase["similitud"].median()),
+                "similitud_std": float(df_clase["similitud"].std())
+            }
     
     return metricas
 

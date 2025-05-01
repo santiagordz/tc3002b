@@ -5,171 +5,152 @@ import re
 import time
 import matplotlib.pyplot as plt
 import seaborn as sns
-from concurrent.futures import ProcessPoolExecutor
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
 import tensorflow as tf
 import tensorflow_hub as hub
 import json
+from json import JSONEncoder
+import nltk
+from nltk.stem import WordNetLemmatizer
+from nltk.tokenize import word_tokenize
+from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
+from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
+from sklearn.cluster import KMeans, DBSCAN
+from scipy.stats import entropy
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+import seaborn as sns
 
+nltk.download('punkt_tab')
+lemmatizer = WordNetLemmatizer()
 
-# Configuración global
+# Simplified global configuration
 CONFIG = {
-    'umbrales': {
-        'plagio': 0.70,    # Antes 'alto'
-        'sospechoso': 0.50  # Antes 'medio'
+    # Similarity analysis configuration
+    'similitud': {
+        'umbral_plagio': 0.75,  # Threshold for plagiarism
     },
+    # Weights for different similarity methods
     'pesos': {
         'bow': 0.15,
         'tfidf': 0.20,
-        'semantico': 0.10,
+        'semantico': 0.25,
         'ngrama_palabra': 0.15,
         'ngrama_caracter': 0.20,
-        'markov': 0.10,
-        'estilo': 0.05,
-        'estructura': 0.05,
+        'markov': 0.05
+    },
+    # Folder paths
+    'rutas': {
+        'documentos_originales': './Dokumen Teks/Original',
+        'documentos_sospechosos': './Dokumen Teks/Copy'
     }
 }
 
-# Cache para modelos de embeddings
+# Cache for embeddings model
 EMBEDDINGS_MODEL = None
 
-# Preprocesamiento del texto
 def preprocess_text(texto):
-    """Preprocesamiento básico del texto con optimizaciones.
+    """
+    Text preprocessing with NLTK lemmatization.
     
     Args:
-        texto (str): Texto a preprocesar
+        texto: Input text
         
     Returns:
-        str: Texto preprocesado
+        str: Preprocessed and lemmatized text
     """
-    # Verificar entrada
-    if texto is None or not isinstance(texto, str):
+    if texto is None:
         return ''
     
     try:
-        # Limitar longitud para mejorar rendimiento
-        if len(texto) > 1000000:  # Limitar a 1M caracteres
-            texto = texto[:1000000]
-            print("Texto truncado a 1M caracteres para optimizar rendimiento")
-            
-        # Normalizar espacios (más eficiente)
-        texto = ' '.join(texto.split())
+        # Normalize spaces
+        texto = re.sub(r'\s+', ' ', texto)
         
-        # Conservar sólo caracteres alfanuméricos y espacios para análisis general
+        # Keep only alphanumeric characters and spaces for general analysis
         texto_procesado = re.sub(r'[^a-zA-ZáéíóúÁÉÍÓÚüÜñÑ0-9\s]', '', texto)
+        texto_procesado = texto_procesado.lower().strip()
         
-        return texto_procesado.lower().strip()
+        # Tokenize the text
+        tokens = word_tokenize(texto_procesado)
+        
+        # Lemmatize each token
+        lemmatized_tokens = [lemmatizer.lemmatize(token) for token in tokens]
+        
+        # Join tokens back into a single string
+        texto_lemmatizado = ' '.join(lemmatized_tokens)
+        
+        return texto_lemmatizado
+        
     except Exception as e:
-        print(f"Error en preprocesamiento de texto: {e}")
-        return ''
+        print(f"Error in text preprocessing: {e}")
+        # Return the basic preprocessing as fallback
+        return texto.lower().strip() if texto else ''
 
-
-# Carga de modelo de embeddings semánticos
 def cargar_modelo_embeddings():
-    """Carga el modelo de embeddings semánticos (Universal Sentence Encoder)."""
+    """Loads the semantic embeddings model (Universal Sentence Encoder)."""
     global EMBEDDINGS_MODEL
     
     if EMBEDDINGS_MODEL is None:
-        print("Cargando modelo de embeddings semánticos...")
+        print("Loading semantic embeddings model...")
         
         try:
-            # Intentar usar modelo previamente descargado
-            if os.path.exists('modelos/use_model'):
-                EMBEDDINGS_MODEL = hub.load('modelos/use_model')
+            # Try to use previously downloaded model
+            if os.path.exists('./modelos'):
+                print("Loading embeddings model from local folder...")
+                EMBEDDINGS_MODEL = hub.load('./modelos/use_model')
             else:
-                # Descargar y guardar modelo
+                print("Model not found. Downloading...")
+                # Download and save model
                 EMBEDDINGS_MODEL = hub.load("https://tfhub.dev/google/universal-sentence-encoder/4")
-                # Crear directorio si no existe
-                if not os.path.exists('modelos'):
-                    os.makedirs('modelos')
-                # Guardar para uso futuro
-                tf.saved_model.save(EMBEDDINGS_MODEL, 'modelos/use_model')
+                # Create directory if it doesn't exist
+                if not os.path.exists('./modelos'):
+                    os.makedirs('./modelos')
+                # Save for future use
+                tf.saved_model.save(EMBEDDINGS_MODEL, './modelos/use_model')
             
-            print("Modelo de embeddings cargado con éxito.")
+            print("Embeddings model loaded successfully.")
         except Exception as e:
-            print(f"Error al cargar modelo de embeddings: {e}")
-            print("Usando un modelo alternativo simplificado...")
-            # Modelo alternativo simple (fallback)
+            print(f"Error loading embeddings model: {e}")
+            print("Using a simplified alternative model...")
+            # Simple fallback model
             EMBEDDINGS_MODEL = "FALLBACK"
     
     return EMBEDDINGS_MODEL
 
-# Cache para embeddings
-EMBEDDINGS_CACHE = {}
-
-# Obtener embeddings semánticos
 def obtener_embeddings_semanticos(textos):
-    """Obtiene embeddings semánticos para los textos proporcionados con caché."""
-    global EMBEDDINGS_CACHE
+    """Gets semantic embeddings for the provided texts."""
     modelo = cargar_modelo_embeddings()
     
-    # Crear claves de caché para los textos
-    cache_keys = [hash(texto[:1000]) for texto in textos]  # Usar solo los primeros 1000 caracteres para la clave
-    
-    # Verificar caché para cada texto
-    resultados = []
-    textos_a_procesar = []
-    indices_a_procesar = []
-    
-    for i, (texto, key) in enumerate(zip(textos, cache_keys)):
-        if key in EMBEDDINGS_CACHE:
-            resultados.append(EMBEDDINGS_CACHE[key])
-        else:
-            textos_a_procesar.append(texto)
-            indices_a_procesar.append(i)
-    
-    # Si no hay textos para procesar, devolver resultados de caché
-    if not textos_a_procesar:
-        return np.array(resultados)
-    
-    # Procesar textos que no están en caché
     if modelo == "FALLBACK":
-        # Modelo fallback simple basado en TF-IDF
-        vectorizer = TfidfVectorizer(max_features=512)
-        nuevos_embeddings = vectorizer.fit_transform(textos_a_procesar).toarray()
-    else:
-        try:
-            # Asegurarse de que los textos no estén vacíos
-            textos_a_procesar = [t if t.strip() else "texto vacío" for t in textos_a_procesar]
-            
-            # Truncar textos muy largos para evitar problemas de memoria
-            textos_a_procesar = [t[:100000] for t in textos_a_procesar]
-            
-            # Obtener embeddings
-            nuevos_embeddings = modelo(textos_a_procesar).numpy()
-        except Exception as e:
-            print(f"Error al obtener embeddings: {e}")
-            # Fallback a TF-IDF simple
-            vectorizer = TfidfVectorizer(max_features=512)
-            nuevos_embeddings = vectorizer.fit_transform(textos_a_procesar).toarray()
+        # Fallback to random vectors for demonstration
+        return np.random.rand(len(textos), 512)
     
-    # Guardar nuevos embeddings en caché
-    for i, idx in enumerate(indices_a_procesar):
-        EMBEDDINGS_CACHE[cache_keys[idx]] = nuevos_embeddings[i]
-        resultados.insert(idx, nuevos_embeddings[i])
+    try:
+        # Ensure texts are not empty
+        textos = [t if t.strip() else "empty text" for t in textos]
+        
+        # Truncate very long texts to avoid memory issues
+        textos = [t[:100000] for t in textos]
+        
+        # Get embeddings
+        embeddings = modelo(textos).numpy()
+        return embeddings
     
-    # Limitar tamaño de caché (mantener solo los últimos 100 embeddings)
-    if len(EMBEDDINGS_CACHE) > 100:
-        # Eliminar las claves más antiguas
-        oldest_keys = list(EMBEDDINGS_CACHE.keys())[:-100]
-        for key in oldest_keys:
-            del EMBEDDINGS_CACHE[key]
-    
-    return np.array(resultados)
+    except Exception as e:
+        print(f"Error getting embeddings: {e}")
+        # Fallback to random vectors for demonstration
+        return np.random.rand(len(textos), 512)
 
-# Matriz de transición de Markov
-def crear_matriz_markov_mejorada(texto, n=2):
-    """Crea matriz de transición de n-gramas de caracteres."""
-    # Preprocesar el texto para Markov
+def crear_matriz_markov(texto, n=2):
+    """Creates a transition matrix from n-grams of characters."""
+    # Preprocess text for Markov
     texto = ''.join(c for c in texto.lower() if c.isalpha() or c.isspace())
     
     if len(texto) <= n:
-        return np.zeros((27, 27))  # 26 letras + espacio
+        return np.zeros((27, 27))  # 26 letters + space
     
-    # Mapear caracteres a índices (26 para espacio)
+    # Map characters to indices (26 for space)
     char_a_idx = lambda c: 26 if c == ' ' else (ord(c) - ord('a') if 'a' <= c <= 'z' else 0)
     
     matriz = np.zeros((27, 27))
@@ -178,95 +159,62 @@ def crear_matriz_markov_mejorada(texto, n=2):
         if 0 <= a < 27 and 0 <= b < 27:
             matriz[a][b] += 1
             
-    # Normalizar
+    # Normalize
     sumas_filas = matriz.sum(axis=1, keepdims=True)
     matriz = np.divide(matriz, sumas_filas, out=np.zeros_like(matriz), where=sumas_filas != 0)
     return matriz
 
-# Función de similitud coseno para matrices densas
 def cosine_sim_dense(v1, v2):
-    """Calcula similitud coseno entre matrices densas."""
+    """Calculates cosine similarity between dense matrices."""
     if np.sum(v1) == 0 or np.sum(v2) == 0:
         return 0.0
     return np.dot(v1.flatten(), v2.flatten()) / (np.linalg.norm(v1.flatten()) * np.linalg.norm(v2.flatten()))
 
-# Calcular similitud de n-gramas
 def calcular_similitud_ngrama(texto1, texto2, rango_n=(2, 3), analizador='word'):
-    """Calcula similitud basada en n-gramas."""
-    # Usar n-gramas de caracteres o palabras
+    """Calculates n-gram based similarity."""
+    # Use character or word n-grams
     vectorizador = CountVectorizer(analyzer=analizador, ngram_range=rango_n)
     
     try:
         vectores = vectorizador.fit_transform([texto1, texto2])
-        if vectores[0].nnz == 0 or vectores[1].nnz == 0:  # Verificar si hay elementos no cero
+        if vectores[0].nnz == 0 or vectores[1].nnz == 0:  # Check if there are non-zero elements
             return 0.0
         similitud = cosine_similarity(vectores[0], vectores[1])[0, 0]
         return similitud
     except Exception as e:
-        print(f"Error en cálculo de n-gramas: {e}")
+        print(f"Error in n-gram calculation: {e}")
         return 0.0
 
-# Extraer características estilísticas
-def extraer_caracteristicas_estilo(texto):
-    """Extrae características estilísticas del texto."""
-    if not texto or len(texto) < 10:
-        return {
-            'longitud_promedio_palabra': 0,
-            'longitud_promedio_oracion': 0,
-            'ratio_puntuacion': 0,
-            'ratio_mayusculas': 0
-        }
-    
-    # Recuperar texto original con puntuación para este análisis
-    texto_original = texto
-    
-    # Calcular características
-    palabras = [w for w in texto.split() if w]
-    oraciones = [s for s in re.split(r'[.!?]', texto_original) if s.strip()]
-    
-    try:
-        caracteristicas = {
-            'longitud_promedio_palabra': np.mean([len(w) for w in palabras]) if palabras else 0,
-            'longitud_promedio_oracion': np.mean([len(s.split()) for s in oraciones]) if oraciones else 0,
-            'ratio_puntuacion': len(re.findall(r'[.,;:!?]', texto_original)) / max(1, len(texto_original)),
-            'ratio_mayusculas': sum(1 for c in texto_original if c.isupper()) / max(1, len(texto_original))
-        }
-    except Exception as e:
-        print(f"Error al extraer características de estilo: {e}")
-        caracteristicas = {
-            'longitud_promedio_palabra': 0,
-            'longitud_promedio_oracion': 0,
-            'ratio_puntuacion': 0,
-            'ratio_mayusculas': 0
-        }
-    
-    return caracteristicas
-
-# Clasificar la similitud
 def clasificar_similitud(sim):
-    """Clasifica el nivel de similitud basado en umbrales.
+    """Classifies the similarity level based on thresholds.
     
-    Retorna:
-        str: 'plagio', 'sospechoso', o 'original' según el nivel de similitud.
+    Args:
+        sim: Similarity value between 0 and 1
+        
+    Returns:
+        dict: Dictionary with classification and confidence level
     """
-    if sim >= CONFIG['umbrales']['plagio']:
-        return 'plagio'
-    elif sim >= CONFIG['umbrales']['sospechoso']:
-        return 'sospechoso'
+    if sim >= CONFIG['similitud']['umbral_plagio']:
+        return {
+            'clasificacion': 'plagio',
+            'confianza': (sim - CONFIG['similitud']['umbral_plagio']) / (1 - CONFIG['similitud']['umbral_plagio'])
+        }
     else:
-        return 'original'
+        return {
+            'clasificacion': 'original',
+            'confianza': 1 - (sim / CONFIG['similitud']['umbral_plagio'])
+        }
 
-# Calcular similitud combinada
 def calcular_similitud_combinada(texto_original, texto_similar, pesos=None):
-    """Calcula la similitud combinada usando múltiples métricas con pesos."""
+    """Calculates combined similarity using multiple metrics with weights."""
     if pesos is None:
         pesos = CONFIG['pesos']
     
     resultados = {}
     
-    # Calcular similitudes individuales
+    # Calculate individual similarities
     
-    # Vectorización BOW
+    # BOW vectorization
     vectorizer_bow = CountVectorizer()
     try:
         vectores_bow = vectorizer_bow.fit_transform([texto_original, texto_similar])
@@ -275,7 +223,7 @@ def calcular_similitud_combinada(texto_original, texto_similar, pesos=None):
         cos_bow = 0
     resultados['cos_BOW'] = cos_bow
     
-    # Vectorización TF-IDF
+    # TF-IDF vectorization
     vectorizer_tfidf = TfidfVectorizer()
     try:
         vectores_tfidf = vectorizer_tfidf.fit_transform([texto_original, texto_similar])
@@ -284,7 +232,7 @@ def calcular_similitud_combinada(texto_original, texto_similar, pesos=None):
         cos_tfidf = 0
     resultados['cos_TFIDF'] = cos_tfidf
     
-    # Similitud semántica
+    # Semantic similarity
     try:
         embeddings_semanticos = obtener_embeddings_semanticos([texto_original, texto_similar])
         cos_semantico = cosine_similarity([embeddings_semanticos[0]], [embeddings_semanticos[1]])[0][0]
@@ -292,208 +240,339 @@ def calcular_similitud_combinada(texto_original, texto_similar, pesos=None):
         cos_semantico = 0
     resultados['cos_SEMANTICO'] = cos_semantico
     
-    # Similitudes de N-gramas
+    # N-gram similarities
     cos_ngrama_palabra = calcular_similitud_ngrama(texto_original, texto_similar, rango_n=(2, 3), analizador='word')
     resultados['cos_NGRAMA_PALABRA'] = cos_ngrama_palabra
     
     cos_ngrama_caracter = calcular_similitud_ngrama(texto_original, texto_similar, rango_n=(3, 5), analizador='char')
     resultados['cos_NGRAMA_CARACTER'] = cos_ngrama_caracter
     
-    # Similitudes de estilo
-    markov_orig = crear_matriz_markov_mejorada(texto_original)
-    markov_sim = crear_matriz_markov_mejorada(texto_similar)
+    # Markov similarities
+    markov_orig = crear_matriz_markov(texto_original)
+    markov_sim = crear_matriz_markov(texto_similar)
     cos_markov = cosine_sim_dense(markov_orig, markov_sim)
     resultados['cos_MARKOV'] = cos_markov
     
-    # Extraer características de estilo
-    estilo_orig = extraer_caracteristicas_estilo(texto_original)
-    estilo_sim = extraer_caracteristicas_estilo(texto_similar)
-    
-    # Calcular similitud de estilo (enfoque simple)
-    puntuacion_sim_estilo = 0
-    if estilo_orig and estilo_sim:
-        caracteristicas = list(estilo_orig.keys())
-        difs_caracteristicas = [abs(estilo_orig[f] - estilo_sim[f]) / max(estilo_orig[f], 0.001) for f in caracteristicas]
-        puntuacion_sim_estilo = 1 - min(1, sum(difs_caracteristicas) / len(caracteristicas))
-    resultados['cos_ESTILO'] = puntuacion_sim_estilo
-    
-    # Combinar todas las similitudes con pesos
+    # Combine all similarities with weights
     puntuacion_combinada = (
         pesos['bow'] * cos_bow +
         pesos['tfidf'] * cos_tfidf +
         pesos['semantico'] * cos_semantico +
         pesos['ngrama_palabra'] * cos_ngrama_palabra +
         pesos['ngrama_caracter'] * cos_ngrama_caracter +
-        pesos['markov'] * cos_markov +
-        pesos['estilo'] * puntuacion_sim_estilo
+        pesos['markov'] * cos_markov
     )
-    resultados['cos_COMBINADO'] = puntuacion_combinada
+    resultados['similitud'] = puntuacion_combinada
     
-    # Clasificar todas las similitudes
-    for clave in list(resultados):
-        metodo = clave.replace('cos_', '')
-        resultados[f'pred_{metodo}'] = clasificar_similitud(resultados[clave])
+    # Classify the combined similarity
+    clasificacion = clasificar_similitud(puntuacion_combinada)
+    resultados['clasificacion'] = clasificacion['clasificacion']
+    resultados['confianza'] = clasificacion['confianza']
     
     return resultados
 
-# Evaluar modelo
-def evaluar_modelo(df_resultados):
-    """Evalúa el modelo con múltiples métricas."""
-    metricas = {}
+def procesar_archivo(archivo_original, archivo_sospechoso):
+    """Processes a pair of files and calculates similarity between them using multiple methods.
     
-    # Evaluar cada método por separado
-    metodos = ['BOW', 'TFIDF', 'MARKOV', 'SEMANTICO', 'NGRAMA_PALABRA', 'NGRAMA_CARACTER', 'COMBINADO']
-    
-    # Nuevas etiquetas de clasificación
-    etiquetas = ['plagio', 'sospechoso', 'original']
-    
-    for metodo in metodos:
-        if f"pred_{metodo}" in df_resultados.columns:
-            y_true = df_resultados["precargado"]
-            y_pred = df_resultados[f"pred_{metodo}"]
-            
-            # Calcular precisión, recall, f1 para cada clase
-            precision, recall, f1, _ = precision_recall_fscore_support(
-                y_true, y_pred, average=None, labels=etiquetas
-            )
-            
-            # Calcular exactitud
-            exactitud = (y_true == y_pred).mean()
-            
-            metricas[metodo] = {
-                'exactitud': exactitud,
-                'precision': dict(zip(etiquetas, precision)),
-                'recall': dict(zip(etiquetas, recall)),
-                'f1': dict(zip(etiquetas, f1)),
-                'matriz_confusion': confusion_matrix(
-                    y_true, y_pred, labels=etiquetas
-                ).tolist()  # Convertir a lista para poder serializarlo
-            }
-    
-    return metricas
-
-# Procesar archivos
-def procesar_archivo(nombre_archivo, ruta_carpeta, texto_original):
-    """Procesa un archivo de texto y calcula similitudes con el original."""
-    
-    archivo_similar = os.path.join(ruta_carpeta, nombre_archivo)
-    
+    Args:
+        archivo_original: Path to original file
+        archivo_sospechoso: Path to suspicious file
+        
+    Returns:
+        dict: Result of similarity analysis
+    """
     try:
-        with open(archivo_similar, 'r', encoding='utf-8') as f:
-            texto_similar = preprocess_text(f.read())
+        # Extract IDs from filenames
+        id_original = os.path.basename(archivo_original).replace('source-document', '').replace('.txt', '')
+        id_sospechoso = os.path.basename(archivo_sospechoso).replace('suspicious-document', '').replace('.txt', '')
         
-        # Extraer etiqueta precargada del nombre del archivo
-        if nombre_archivo.startswith("plagio"):
-            precargado = "plagio"
-        elif nombre_archivo.startswith("sospechoso"):
-            precargado = "sospechoso"
-        elif nombre_archivo.startswith("original") and nombre_archivo != "original.txt":
-            precargado = "original"
-        # Mantener compatibilidad con el formato anterior
-        elif nombre_archivo.startswith("high"):
-            precargado = "plagio"
-        elif nombre_archivo.startswith("moderate") or nombre_archivo.startswith("medium"):
-            precargado = "sospechoso"
-        elif nombre_archivo.startswith("low"):
-            precargado = "original"
-        else:
-            precargado = "unknown"
+        # Read contents
+        with open(archivo_original, 'r', encoding='utf-8') as f:
+            texto_original = preprocess_text(f.read())
+            
+        with open(archivo_sospechoso, 'r', encoding='utf-8') as f:
+            texto_sospechoso = preprocess_text(f.read())
         
-        # Calcular todas las similitudes
-        resultados_similitud = calcular_similitud_combinada(texto_original, texto_similar)
+        # Calculate combined similarity with multiple methods
+        resultado_similitud = calcular_similitud_combinada(texto_original, texto_sospechoso)
         
-        # Preparar resultado
+        # Prepare result
         resultado = {
-            "original": "original.txt",
-            "similar": nombre_archivo,
-            "precargado": precargado,
+            "id_original": id_original,
+            "id_sospechoso": id_sospechoso,
+            "archivo_original": os.path.basename(archivo_original),
+            "archivo_sospechoso": os.path.basename(archivo_sospechoso),
+            "similitud": float(resultado_similitud['similitud']),  # Convert to standard Python float
+            "clasificacion": resultado_similitud['clasificacion'],
+            "confianza": float(resultado_similitud['confianza']),  # Convert to standard Python float
+            "cos_BOW": float(resultado_similitud['cos_BOW']),
+            "cos_TFIDF": float(resultado_similitud['cos_TFIDF']),
+            "cos_SEMANTICO": float(resultado_similitud['cos_SEMANTICO']),
+            "cos_NGRAMA_PALABRA": float(resultado_similitud['cos_NGRAMA_PALABRA']),
+            "cos_NGRAMA_CARACTER": float(resultado_similitud['cos_NGRAMA_CARACTER']),
+            "cos_MARKOV": float(resultado_similitud['cos_MARKOV'])
         }
-        
-        # Añadir todas las métricas calculadas
-        resultado.update(resultados_similitud)
-        
-        # Añadir aciertos
-        for metodo in ['BOW', 'TFIDF', 'MARKOV', 'SEMANTICO', 'NGRAMA_PALABRA', 'NGRAMA_CARACTER', 'COMBINADO']:
-            if f"pred_{metodo}" in resultados_similitud:
-                resultado[f"acierto_{metodo}"] = resultado[f"pred_{metodo}"] == precargado
         
         return resultado
     
     except Exception as e:
-        print(f"Error al procesar el archivo {nombre_archivo}: {e}")
+        print(f"Error processing files {archivo_original} and {archivo_sospechoso}: {e}")
         return {
-            "original": "original.txt",
-            "similar": nombre_archivo,
+            "id_original": id_original if 'id_original' in locals() else 'unknown',
+            "id_sospechoso": id_sospechoso if 'id_sospechoso' in locals() else 'unknown',
+            "archivo_original": os.path.basename(archivo_original),
+            "archivo_sospechoso": os.path.basename(archivo_sospechoso),
             "error": str(e)
         }
 
-def crear_visualizaciones_no_etiquetadas(df_resultados, ruta_carpeta):
-    """Crea visualizaciones adecuadas para datos no etiquetados."""
+def evaluar_resultados(df_resultados):
+    """Evaluates the similarity analysis results with advanced clustering metrics.
+    
+    Args:
+        df_resultados: DataFrame with analysis results
+        
+    Returns:
+        dict: Metrics and statistics from the analysis
+    """
+    metricas = {}
+    
+    # Basic similarity statistics
+    metricas["estadisticas"] = {
+        'similitud_media': float(df_resultados["similitud"].mean()),
+        'similitud_mediana': float(df_resultados["similitud"].median()),
+        'similitud_min': float(df_resultados["similitud"].min()),
+        'similitud_max': float(df_resultados["similitud"].max()),
+        'similitud_std': float(df_resultados["similitud"].std()),
+    }
+    
+    # Classification distribution
+    if "clasificacion" in df_resultados.columns:
+        # Convert to standard Python dictionary
+        conteo_clasificaciones = {k: int(v) for k, v in df_resultados["clasificacion"].value_counts().to_dict().items()}
+        metricas["distribucion"] = conteo_clasificaciones
+        
+        # Calculate percentages
+        total = sum(conteo_clasificaciones.values())
+        metricas["porcentajes"] = {k: float(v/total) for k, v in conteo_clasificaciones.items()}
+    
+    # Statistics for each similarity method
+    metodos = ['BOW', 'TFIDF', 'SEMANTICO', 'NGRAMA_PALABRA', 'NGRAMA_CARACTER', 'MARKOV']
+    metricas["metodos"] = {}
+    
+    for metodo in metodos:
+        col = f"cos_{metodo}"
+        if col in df_resultados.columns:
+            metricas["metodos"][metodo] = {
+                'media': float(df_resultados[col].mean()),
+                'mediana': float(df_resultados[col].median()),
+                'min': float(df_resultados[col].min()),
+                'max': float(df_resultados[col].max()),
+                'std': float(df_resultados[col].std()),
+            }
+    
+    # ADD ADVANCED CLUSTERING METRICS
+    if "clasificacion" in df_resultados.columns and len(df_resultados) > 2:
+        try:
+            # Create feature matrix for clustering evaluation
+            X = np.array(df_resultados[['similitud'] + [f'cos_{m}' for m in metodos if f'cos_{m}' in df_resultados.columns]])
+            
+            # Convert classifications to numeric labels
+            mapping = {'original': 0, 'plagio': 1}
+            y_true = np.array([mapping.get(c, 0) for c in df_resultados["clasificacion"]])
+            
+            # Apply K-means clustering (k=2 for original/plagiarism)
+            kmeans = KMeans(n_clusters=2, random_state=42, n_init=10)
+            y_pred_kmeans = kmeans.fit_predict(X)
+            
+            # Try DBSCAN for density-based clustering
+            dbscan = DBSCAN(eps=0.3, min_samples=3)
+            y_pred_dbscan = dbscan.fit_predict(X)
+            
+            # Only calculate DBSCAN metrics if we have at least 2 clusters (not all noise)
+            if len(np.unique([y for y in y_pred_dbscan if y >= 0])) >= 2:
+                metricas["clustering"] = {
+                    "dbscan_num_clusters": int(len(np.unique([y for y in y_pred_dbscan if y >= 0]))),
+                    "dbscan_noise_points": int(np.sum(y_pred_dbscan == -1))
+                }
+            
+            # Create a 2D feature matrix for visualization (similitud + TFIDF or the most important feature)
+            most_important_feature = 'cos_TFIDF' if 'cos_TFIDF' in df_resultados.columns else 'cos_SEMANTICO'
+            X_2d = df_resultados[['similitud', most_important_feature]].values
+            
+            # Silhouette Coefficient - measures how well samples are clustered
+            try:
+                silhouette_avg = silhouette_score(X_2d, y_true)
+                metricas["silhouette_coefficient"] = float(silhouette_avg)
+                
+                if len(np.unique(y_pred_kmeans)) >= 2:
+                    silhouette_kmeans = silhouette_score(X_2d, y_pred_kmeans)
+                    metricas["silhouette_kmeans"] = float(silhouette_kmeans)
+            except:
+                pass
+            
+            # Davies-Bouldin Index - lower values indicate better clustering
+            try:
+                db_index = davies_bouldin_score(X_2d, y_true)
+                metricas["davies_bouldin_index"] = float(db_index)
+            except:
+                pass
+            
+            # Calinski-Harabasz Index - higher values indicate better clustering
+            try:
+                ch_index = calinski_harabasz_score(X_2d, y_true)
+                metricas["calinski_harabasz_index"] = float(ch_index)
+            except:
+                pass
+            
+            # Confusion matrix for K-means vs true labels
+            conf_matrix = confusion_matrix(y_true, y_pred_kmeans)
+            # We may need to flip the clusters if kmeans assigned different label numbers
+            if np.sum(conf_matrix.diagonal()) < np.sum(conf_matrix - np.diag(conf_matrix.diagonal())):
+                y_pred_kmeans = 1 - y_pred_kmeans
+                conf_matrix = confusion_matrix(y_true, y_pred_kmeans)
+            
+            # Store confusion matrix values in metrics
+            if conf_matrix.shape == (2, 2):
+                tn, fp, fn, tp = conf_matrix.ravel()
+            else:
+                tn, fp, fn, tp = 0, 0, 0, 0
+                
+            metricas["matriz_confusion_kmeans"] = {
+                "verdadero_negativo": int(tn),
+                "falso_positivo": int(fp),
+                "falso_negativo": int(fn),
+                "verdadero_positivo": int(tp)
+            }
+            
+            # Calculate clustering accuracy
+            clustering_accuracy = np.sum(y_true == y_pred_kmeans) / len(y_true)
+            metricas["clustering_accuracy"] = float(clustering_accuracy)
+            
+            # Precision, recall, F1 score
+            precision, recall, f1, _ = precision_recall_fscore_support(
+                y_true, y_pred_kmeans, average='binary', zero_division=0
+            )
+            
+            metricas["metricas_clustering"] = {
+                "precision": float(precision),
+                "recall": float(recall),
+                "f1_score": float(f1)
+            }
+            
+            # Feature importance (based on K-means centroids)
+            feature_names = ['similitud'] + [f'cos_{m}' for m in metodos if f'cos_{m}' in df_resultados.columns]
+            centroid_diff = np.abs(kmeans.cluster_centers_[0] - kmeans.cluster_centers_[1])
+            feature_importance = dict(zip(feature_names, centroid_diff / np.sum(centroid_diff)))
+            metricas["feature_importance"] = {k: float(v) for k, v in feature_importance.items()}
+            
+            # Inter-cluster vs intra-cluster distance ratio
+            intra_cluster_dist = np.mean([
+                np.mean([np.linalg.norm(X[i] - kmeans.cluster_centers_[y_pred_kmeans[i]]) 
+                        for i in range(len(X)) if y_pred_kmeans[i] == c])
+                for c in range(2)
+            ])
+            
+            inter_cluster_dist = np.linalg.norm(kmeans.cluster_centers_[0] - kmeans.cluster_centers_[1])
+            
+            metricas["inter_intra_ratio"] = float(inter_cluster_dist / intra_cluster_dist) if intra_cluster_dist > 0 else 0.0
+            
+        except Exception as e:
+            print(f"Error calculating advanced clustering metrics: {e}")
+            metricas["error_clustering"] = str(e)
+    
+        # Analysis of distribution by class
+        metricas["analisis_por_clase"] = {}
+        for clase in df_resultados["clasificacion"].unique():
+            df_clase = df_resultados[df_resultados["clasificacion"] == clase]
+            metricas["analisis_por_clase"][clase] = {
+                "count": int(len(df_clase)),
+                "similitud_media": float(df_clase["similitud"].mean()),
+                "similitud_mediana": float(df_clase["similitud"].median()),
+                "similitud_std": float(df_clase["similitud"].std())
+            }
+    
+    return metricas
+
+def crear_visualizaciones(df_resultados, ruta_carpeta):
+    """Creates enhanced visualizations of similarity analysis results.
+    
+    Args:
+        df_resultados: DataFrame with analysis results
+        ruta_carpeta: Folder where to save visualizations
+    """
     try:
-        # 1. Distribución de similitudes
-        plt.figure(figsize=(10, 6))
-        plt.hist(df_resultados['similitud'], bins=20, alpha=0.7, color='blue')
-        plt.title('Distribución de Puntuaciones de Similitud')
+        # 1. Similarity distribution histogram
+        plt.figure(figsize=(12, 6))
+        sns.histplot(df_resultados['similitud'], bins=20, kde=True)
+        plt.axvline(x=CONFIG['similitud']['umbral_plagio'], color='r', linestyle='--', label='Umbral Plagio')
+        plt.title('Distribución de Similitudes entre Documentos')
         plt.xlabel('Puntuación de Similitud')
         plt.ylabel('Frecuencia')
         plt.grid(True, alpha=0.3)
-        
-        # Añadir líneas de umbral
-        plt.axvline(x=CONFIG['umbrales']['plagio'], color='red', linestyle='--', 
-                  label=f'Umbral de Plagio ({CONFIG["umbrales"]["plagio"]})')
-        plt.axvline(x=CONFIG['umbrales']['sospechoso'], color='orange', linestyle='--', 
-                  label=f'Umbral Sospechoso ({CONFIG["umbrales"]["sospechoso"]})')
-        
         plt.legend()
         plt.tight_layout()
         
-        ruta_dist = os.path.join(ruta_carpeta, 'distribucion_similitudes.png')
-        plt.savefig(ruta_dist)
+        ruta_histograma = os.path.join(ruta_carpeta, 'histograma_similitud.png')
+        plt.savefig(ruta_histograma)
         plt.close()
         
-        # 2. Mapa de calor de similitudes entre documentos
-        if len(df_resultados) <= 100:  # Limitar para evitar mapas de calor enormes
-            # Crear una matriz de similitud entre todos los pares
-            originales = df_resultados['original'].unique()
-            copias = df_resultados['similar'].unique()
+        # 2. Classification bar chart
+        if 'clasificacion' in df_resultados.columns:
+            conteo = df_resultados['clasificacion'].value_counts()
+            plt.figure(figsize=(10, 6))
+            ax = sns.barplot(x=conteo.index, y=conteo.values)
+            plt.title('Distribución de Clasificaciones')
+            plt.xlabel('Clasificación')
+            plt.ylabel('Cantidad de Documentos')
             
-            # Crear una matriz para el mapa de calor
-            matriz_similitud = np.zeros((len(originales), len(copias)))
+            # Add percentage and count labels
+            total = sum(conteo)
+            for i, p in enumerate(ax.patches):
+                height = p.get_height()
+                percentage = height / total * 100
+                ax.text(p.get_x() + p.get_width()/2., height + 0.3, 
+                       f'{int(height)} ({percentage:.1f}%)', 
+                       ha="center", fontsize=12)
             
-            # Llenar la matriz
-            for i, orig in enumerate(originales):
-                for j, cop in enumerate(copias):
-                    fila = df_resultados[(df_resultados['original'] == orig) & 
-                                        (df_resultados['similar'] == cop)]
-                    if not fila.empty:
-                        matriz_similitud[i, j] = fila['similitud'].values[0]
-            
-            # Crear el mapa de calor
-            plt.figure(figsize=(12, 8))
-            sns.heatmap(matriz_similitud, cmap='YlOrRd', 
-                       xticklabels=copias, yticklabels=originales)
-            plt.title('Mapa de Calor de Similitud entre Documentos')
-            plt.xlabel('Documentos de Copy')
-            plt.ylabel('Documentos de Original')
-            plt.xticks(rotation=45, ha='right')
-            plt.yticks(rotation=0)
+            plt.grid(True, alpha=0.3)
             plt.tight_layout()
             
-            ruta_heatmap = os.path.join(ruta_carpeta, 'mapa_calor_similitud.png')
-            plt.savefig(ruta_heatmap)
+            ruta_barras = os.path.join(ruta_carpeta, 'distribucion_clasificaciones.png')
+            plt.savefig(ruta_barras)
             plt.close()
         
-        # 3. Gráfico de comparación de métodos
+        # 3. Similarity vs confidence scatter plot with decision boundary
+        if 'confianza' in df_resultados.columns:
+            plt.figure(figsize=(10, 6))
+            scatter = sns.scatterplot(data=df_resultados, x='similitud', y='confianza', s=80, alpha=0.7)
+            
+            # Add decision boundary line
+            x_min, x_max = plt.xlim()
+            umbral = CONFIG['similitud']['umbral_plagio']
+            plt.axvline(x=umbral, color='r', linestyle='--', label=f'Umbral ({umbral})')
+            
+            plt.title('Relación entre Similitud y Confianza con Clasificación')
+            plt.xlabel('Similitud')
+            plt.ylabel('Confianza')
+            plt.grid(True, alpha=0.3)
+            plt.legend(title="Clasificación")
+            plt.tight_layout()
+            
+            ruta_scatter = os.path.join(ruta_carpeta, 'similitud_vs_confianza.png')
+            plt.savefig(ruta_scatter)
+            plt.close()
+            
+        # 4. Comparison of methods
         plt.figure(figsize=(14, 8))
         
-        metodos = ['BOW', 'TFIDF', 'SEMANTICO', 'NGRAMA_PALABRA', 'NGRAMA_CARACTER', 'MARKOV', 'COMBINADO']
-        colores = ['blue', 'green', 'red', 'purple', 'orange', 'brown', 'black']
+        metodos = ['BOW', 'TFIDF', 'SEMANTICO', 'NGRAMA_PALABRA', 'NGRAMA_CARACTER', 'MARKOV']
+        colores = ['blue', 'green', 'red', 'purple', 'orange', 'brown']
         
-        # Crear identificador para cada comparación
+        # Create id for each comparison
         df_resultados['id_comparacion'] = df_resultados.apply(
-            lambda row: f"{row['original']} vs {row['similar']}", axis=1)
+            lambda row: f"{row['archivo_original']} vs {row['archivo_sospechoso']}", axis=1)
         
-        # Ordenar por similitud combinada para mejor visualización
+        # Sort by combined similarity for better visualization
         df_ordenado = df_resultados.sort_values(by='similitud', ascending=False)
         
         for i, metodo in enumerate(metodos):
@@ -507,494 +586,394 @@ def crear_visualizaciones_no_etiquetadas(df_resultados, ruta_carpeta):
                     color=colores[i % len(colores)]
                 )
         
+        # Add combined similarity line
+        plt.plot(range(len(df_ordenado)), df_ordenado['similitud'], 
+                 color='black', linewidth=2, label='Similitud Combinada')
+        # Add plagiarism threshold
+        plt.axhline(y=CONFIG['similitud']['umbral_plagio'], color='r', 
+                    linestyle='--', label=f'Umbral ({CONFIG["similitud"]["umbral_plagio"]})')
+        
         plt.title('Comparación de Similitudes por Método')
-        plt.xlabel('Comparación (ordenado por similitud)')
+        plt.xlabel('Comparación (ordenado por similitud combinada)')
         plt.ylabel('Puntuación de Similitud')
-        plt.xticks([])  # Ocultar etiquetas del eje x
+        plt.xticks([])  # Hide x-axis labels
         plt.grid(True, alpha=0.3)
-        plt.legend()
+        plt.legend(loc='best')
         plt.tight_layout()
         
         ruta_comparacion = os.path.join(ruta_carpeta, 'grafico_comparacion_metodos.png')
         plt.savefig(ruta_comparacion)
         plt.close()
         
-        # 4. Tops documentos más similares
-        tops = df_resultados.sort_values(by='similitud', ascending=False).head(10)
+        # 5. NEW: Feature correlation heatmap
+        cols_to_include = ['similitud'] + [f'cos_{metodo}' for metodo in metodos if f'cos_{metodo}' in df_resultados.columns]
+        corr_matrix = df_resultados[cols_to_include].corr()
         
-        plt.figure(figsize=(12, 6))
-        plt.bar(tops['id_comparacion'], tops['similitud'], color='royalblue')
-        plt.title('Top 10 Documentos con Mayor Similitud')
-        plt.xlabel('Par de Documentos')
-        plt.ylabel('Puntuación de Similitud')
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-        
-        ruta_tops = os.path.join(ruta_carpeta, 'top_documentos_similares.png')
-        plt.savefig(ruta_tops)
-        plt.close()
-        
-    except Exception as e:
-        print(f"Error al crear visualizaciones para datos no etiquetados: {e}")
-
-def realizar_clustering(df_resultados, ruta_carpeta):
-    """Realiza análisis de clustering para agrupar documentos por similitud."""
-    try:
-        from sklearn.cluster import KMeans
-        from sklearn.preprocessing import StandardScaler
-        
-        # Preparar características para clustering
-        columnas_metricas = [col for col in df_resultados.columns if col.startswith('cos_')]
-        
-        if not columnas_metricas:
-            print("No se encontraron métricas para realizar clustering")
-            return
-        
-        # Crear matriz de características
-        X = df_resultados[columnas_metricas].values
-        
-        # Normalizar características
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-        
-        # Determinar número óptimo de clusters (entre 2 y 5)
-        from sklearn.metrics import silhouette_score
-        
-        silhouette_scores = []
-        k_range = range(2, min(6, len(df_resultados) // 5 + 1))
-        
-        for k in k_range:
-            kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
-            cluster_labels = kmeans.fit_predict(X_scaled)
-            silhouette_avg = silhouette_score(X_scaled, cluster_labels)
-            silhouette_scores.append(silhouette_avg)
-        
-        # Seleccionar mejor k
-        # if silhouette_scores:
-        #     mejor_k = k_range[np.argmax(silhouette_scores)]
-        # else:
-        mejor_k = 3  # Valor predeterminado
-        
-        # Crear modelo final
-        kmeans = KMeans(n_clusters=mejor_k, random_state=42, n_init=10)
-        df_resultados['cluster'] = kmeans.fit_predict(X_scaled)
-        
-        # Visualizar clusters en 2D usando PCA
-        from sklearn.decomposition import PCA
-        
-        pca = PCA(n_components=2)
-        principalComponents = pca.fit_transform(X_scaled)
-        
-        # Crear DataFrame para visualización
-        df_pca = pd.DataFrame(data=principalComponents, columns=['PC1', 'PC2'])
-        df_pca['cluster'] = df_resultados['cluster']
-        df_pca['similitud'] = df_resultados['similitud']
-        df_pca['id_comparacion'] = df_resultados['id_comparacion'] if 'id_comparacion' in df_resultados.columns else df_resultados.index
-        
-        # Graficar clusters
         plt.figure(figsize=(10, 8))
+        mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+        cmap = sns.diverging_palette(230, 20, as_cmap=True)
+        sns.heatmap(corr_matrix, mask=mask, cmap=cmap, vmax=1, vmin=-1, center=0,
+                   square=True, linewidths=.5, annot=True, fmt=".2f")
+        plt.title('Correlación entre Métodos de Similitud')
+        plt.tight_layout()
         
-        # Colores para clusters
-        colores = plt.cm.tab10(np.linspace(0, 1, mejor_k))
+        ruta_correlacion = os.path.join(ruta_carpeta, 'correlacion_metodos.png')
+        plt.savefig(ruta_correlacion)
+        plt.close()
         
-        # Graficar cada cluster
-        for i in range(mejor_k):
-            plt.scatter(
-                df_pca[df_pca['cluster'] == i]['PC1'], 
-                df_pca[df_pca['cluster'] == i]['PC2'],
-                s=50, c=[colores[i]], 
-                label=f'Cluster {i+1}'
+        # 6. NEW: Violin plots for each method by classification
+        if 'clasificacion' in df_resultados.columns:
+            plt.figure(figsize=(14, 10))
+            metrics_to_plot = [col for col in df_resultados.columns if col.startswith('cos_') or col == 'similitud']
+            
+            melted_df = pd.melt(df_resultados, 
+                                id_vars=['clasificacion'], 
+                                value_vars=metrics_to_plot,
+                                var_name='Método', 
+                                value_name='Puntuación')
+            
+            # Replace method names for better display
+            melted_df['Método'] = melted_df['Método'].str.replace('cos_', '').str.title()
+            melted_df.loc[melted_df['Método'] == 'Similitud', 'Método'] = 'Combinada'
+            
+            sns.violinplot(x='Método', y='Puntuación', 
+                          data=melted_df, split=True, inner='quart',
             )
+            
+            plt.title('Distribución de Puntuaciones por Método y Clasificación')
+            plt.grid(True, alpha=0.3)
+            plt.xticks(rotation=45)
+            plt.legend(title='Clasificación')
+            plt.tight_layout()
+            
+            ruta_violin = os.path.join(ruta_carpeta, 'violin_plot_metodos.png')
+            plt.savefig(ruta_violin)
+            plt.close()
         
-        # Marcar centroides
-        centroides = pca.transform(kmeans.cluster_centers_)
-        plt.scatter(
-            centroides[:, 0], centroides[:, 1],
-            s=200, marker='X', c='black', alpha=0.7,
-            label='Centroides'
-        )
+        # 7. NEW: 2D Clustering visualization
+        if 'clasificacion' in df_resultados.columns and len(df_resultados) > 2:
+            try:
+                # Choose the two most informative features for visualization
+                # Typically similarity and the most effective method (TFIDF or Semantic)
+                if 'cos_TFIDF' in df_resultados.columns and 'cos_SEMANTICO' in df_resultados.columns:
+                    x_col = 'cos_TFIDF'
+                    y_col = 'cos_SEMANTICO'
+                else:
+                    # Fallback to first two available methods
+                    available_cols = [col for col in df_resultados.columns if col.startswith('cos_')]
+                    if len(available_cols) >= 2:
+                        x_col, y_col = available_cols[:2]
+                    else:
+                        x_col = 'similitud'
+                        y_col = available_cols[0] if available_cols else 'confianza'
+                
+                # Create 2D feature space
+                X_2d = df_resultados[[x_col, y_col]].values
+                
+                # True labels
+                mapping = {'original': 0, 'plagio': 1}
+                y_true = np.array([mapping.get(c, 0) for c in df_resultados["clasificacion"]])
+                
+                # Apply K-means clustering
+                kmeans = KMeans(n_clusters=2, random_state=42, n_init=10)
+                y_pred = kmeans.fit_predict(X_2d)
+                
+                # We may need to swap cluster labels for consistency (0=original, 1=plagio)
+                # Compare cluster centers and swap if needed
+                if kmeans.cluster_centers_[0].mean() > kmeans.cluster_centers_[1].mean():
+                    y_pred = 1 - y_pred
+                
+                # Create plot
+                plt.figure(figsize=(12, 10))
+                
+                # Create a custom colormap for the background decision boundary
+                cmap_light = LinearSegmentedColormap.from_list(
+                    'cmap_light', ['#AAFFAA', '#FFAAAA'], N=100)
+                
+                # Plot decision boundary
+                h = 0.02  # step size in the mesh
+                x_min, x_max = X_2d[:, 0].min() - 0.1, X_2d[:, 0].max() + 0.1
+                y_min, y_max = X_2d[:, 1].min() - 0.1, X_2d[:, 1].max() + 0.1
+                xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
+                                     np.arange(y_min, y_max, h))
+                Z = kmeans.predict(np.c_[xx.ravel(), yy.ravel()])
+                Z = Z.reshape(xx.shape)
+                plt.contourf(xx, yy, Z, cmap=cmap_light, alpha=0.3)
+                
+                # Plot data points with true labels (outer color) and predicted clusters (inner color)
+                markers = ['o', 's']  # circle for original, square for plagio
+                colors_true = ['blue', 'red']  # colors for true labels
+                
+                for i, (label, color) in enumerate(zip(['Original', 'Plagio'], colors_true)):
+                    idx = y_true == i
+                    plt.scatter(X_2d[idx, 0], X_2d[idx, 1], c=color, 
+                              marker=markers[i], s=80, label=f'True: {label}', 
+                              edgecolor='k', alpha=0.7)
+                
+                # Plot cluster centers
+                plt.scatter(kmeans.cluster_centers_[:, 0], kmeans.cluster_centers_[:, 1],
+                          marker='x', s=200, linewidths=3, color='black',
+                          label='Centroides K-means')
+                
+                # Plot decision threshold line
+                plt.axvline(x=CONFIG['similitud']['umbral_plagio'], color='purple', 
+                         linestyle='--', label=f'Umbral ({CONFIG["similitud"]["umbral_plagio"]})')
+                
+                plt.title('Clustering y Clasificación en Espacio 2D')
+                plt.xlabel(x_col.replace('cos_', '').title())
+                plt.ylabel(y_col.replace('cos_', '').title())
+                plt.legend(loc='best')
+                plt.grid(True, alpha=0.3)
+                plt.tight_layout()
+                
+                ruta_clustering = os.path.join(ruta_carpeta, 'clustering_2d.png')
+                plt.savefig(ruta_clustering)
+                plt.close()
+                
+                # 8. NEW: Confusion matrix visualization
+                conf_matrix = confusion_matrix(y_true, y_pred)
+                
+                plt.figure(figsize=(8, 6))
+                sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues',
+                         xticklabels=['Original', 'Plagio'],
+                         yticklabels=['Original', 'Plagio'])
+                plt.title('Matriz de Confusión: Etiquetas Reales vs Clustering')
+                plt.ylabel('Etiqueta Real')
+                plt.xlabel('Cluster Asignado')
+                plt.tight_layout()
+                
+                ruta_confusion = os.path.join(ruta_carpeta, 'matriz_confusion.png')
+                plt.savefig(ruta_confusion)
+                plt.close()
+                
+            except Exception as e:
+                print(f"Error creating clustering visualizations: {e}")
         
-        plt.title(f'Clustering de Documentos por Similitud (k={mejor_k})')
-        plt.xlabel('Componente Principal 1')
-        plt.ylabel('Componente Principal 2')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        
-        ruta_clusters = os.path.join(ruta_carpeta, 'clustering_documentos.png')
-        plt.savefig(ruta_clusters)
-        plt.close()
-        
-        # Guardar resultados con clusters
-        df_resultados.to_csv(os.path.join(ruta_carpeta, "resultados_clustering.csv"), index=False)
-        
-        # Análisis por cluster
-        resumen_clusters = df_resultados.groupby('cluster').agg({
-            'similitud': ['mean', 'min', 'max', 'count']
-        })
-        
-        # Crear informe por cluster
-        plt.figure(figsize=(10, 6))
-        
-        # Graficar estadísticas por cluster
-        for i in range(mejor_k):
-            if i in resumen_clusters.index:
-                plt.bar(
-                    f"Cluster {i+1}",
-                    resumen_clusters.loc[i, ('similitud', 'mean')],
-                    yerr=[[0], [resumen_clusters.loc[i, ('similitud', 'max')] - resumen_clusters.loc[i, ('similitud', 'mean')]]],
-                    color=colores[i],
-                    alpha=0.7,
-                    capsize=10
-                )
-        
-        plt.title('Similitud Media por Cluster')
-        plt.ylabel('Similitud Media')
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        
-        ruta_resumen = os.path.join(ruta_carpeta, 'resumen_clusters.png')
-        plt.savefig(ruta_resumen)
-        plt.close()
+        # 9. NEW: Feature importance visualization based on clustering
+        try:
+            if 'clasificacion' in df_resultados.columns:
+                # Choose features for importance analysis
+                feature_cols = ['similitud'] + [col for col in df_resultados.columns if col.startswith('cos_')]
+                X_features = df_resultados[feature_cols].values
+                
+                # Apply K-means clustering
+                kmeans = KMeans(n_clusters=2, random_state=42, n_init=10)
+                kmeans.fit(X_features)
+                
+                # Calculate feature importance from cluster centroids
+                centroid_diff = np.abs(kmeans.cluster_centers_[0] - kmeans.cluster_centers_[1])
+                importance = centroid_diff / np.sum(centroid_diff)
+                
+                # Create importance DataFrame
+                feature_names = [col.replace('cos_', '').title() for col in feature_cols]
+                feature_names = [name if name != 'Similitud' else 'Combinada' for name in feature_names]
+                
+                importance_df = pd.DataFrame({
+                    'Feature': feature_names,
+                    'Importance': importance
+                })
+                importance_df = importance_df.sort_values('Importance', ascending=False)
+                
+                plt.figure(figsize=(10, 6))
+                sns.barplot(x='Importance', y='Feature', data=importance_df)
+                plt.title('Importancia de Características para Detección de Plagio')
+                plt.xlabel('Importance Score')
+                plt.grid(True, alpha=0.3)
+                plt.tight_layout()
+                
+                ruta_importancia = os.path.join(ruta_carpeta, 'feature_importance.png')
+                plt.savefig(ruta_importancia)
+                plt.close()
+                
+            # 10. NEW: Silhouette plot
+            if 'clasificacion' in df_resultados.columns and len(df_resultados) > 2:
+                from sklearn.metrics import silhouette_samples
+                
+                # Use similarity and one or two additional features
+                if 'cos_TFIDF' in df_resultados.columns and 'cos_SEMANTICO' in df_resultados.columns:
+                    X_sil = df_resultados[['similitud', 'cos_TFIDF', 'cos_SEMANTICO']].values
+                else:
+                    X_sil = df_resultados[['similitud'] + 
+                                        [col for col in df_resultados.columns if col.startswith('cos_')][:2]].values
+                
+                # Convert classifications to numeric 
+                mapping = {'original': 0, 'plagio': 1}
+                cluster_labels = np.array([mapping.get(c, 0) for c in df_resultados["clasificacion"]])
+                
+                # Calculate silhouette scores for each sample
+                silhouette_vals = silhouette_samples(X_sil, cluster_labels)
+
+                # Create silhouette plot
+                plt.figure(figsize=(10, 8))
+                y_lower, y_upper = 0, 0
+                
+                for i, cluster in enumerate([0, 1]):
+                    cluster_silhouette_vals = silhouette_vals[cluster_labels == cluster]
+                    cluster_silhouette_vals.sort()
+                    
+                    size_cluster_i = cluster_silhouette_vals.shape[0]
+                    y_upper = y_lower + size_cluster_i
+                    
+                    color = plt.cm.nipy_spectral(float(i) / 2)
+                    plt.fill_betweenx(np.arange(y_lower, y_upper),
+                                     0, cluster_silhouette_vals,
+                                     facecolor=color, edgecolor=color, alpha=0.7)
+                    
+                    # Label the silhouette plots with cluster numbers
+                    label = 'Original' if cluster == 0 else 'Plagio'
+                    plt.text(-0.05, y_lower + 0.5 * size_cluster_i, label)
+                    y_lower = y_upper + 10
+                
+                # Add vertical line for average silhouette score
+                plt.axvline(x=np.mean(silhouette_vals), color="red", linestyle="--")
+                
+                plt.title('Análisis de Silhouette por Clasificación')
+                plt.xlabel('Coeficientes de Silhouette')
+                plt.ylabel('Cluster')
+                plt.yticks([])  # Clear y-axis labels
+                plt.xticks([-0.1, 0, 0.2, 0.4, 0.6, 0.8, 1])
+                plt.tight_layout()
+                
+                ruta_silhouette = os.path.join(ruta_carpeta, 'silhouette_plot.png')
+                plt.savefig(ruta_silhouette)
+                plt.close()
+                
+        except Exception as e:
+            print(f"Error creating feature importance visualization: {e}")
         
     except Exception as e:
-        print(f"Error al realizar clustering: {e}")
+        print(f"Error creating visualizations: {e}")
 
-# Modificar ejecutar_analisis para trabajar con datos no etiquetados
-def ejecutar_analisis(ruta_carpeta, max_comparaciones=25):
-    """Ejecuta el análisis completo de similitud entre textos sin depender de etiquetas."""
+def ejecutar_analisis_embeddings(ruta_carpeta_salida=None):
+    """Runs the complete similarity analysis between texts using multiple methods.
+    
+    Args:
+        ruta_carpeta_salida: Folder where to save results
+        
+    Returns:
+        dict: Analysis results
+    """
     tiempo_inicio = time.time()
     
-    # Verificar que existe la carpeta
-    if not os.path.exists(ruta_carpeta):
-        return {
-            "error": f"La carpeta {ruta_carpeta} no existe"
-        }
+    # Get folder paths from configuration
+    ruta_originales = CONFIG['rutas']['documentos_originales']
+    ruta_sospechosos = CONFIG['rutas']['documentos_sospechosos']
     
-    # Verificar que existen las subcarpetas 'Original' y 'Copy'
-    ruta_original = os.path.join(ruta_carpeta, "Original")
-    ruta_copy = os.path.join(ruta_carpeta, "Copy")
+    # Check that folders exist
+    if not os.path.exists(ruta_originales):
+        return {"error": f"The original documents folder {ruta_originales} does not exist"}
     
-    if not os.path.exists(ruta_original) or not os.path.exists(ruta_copy):
-        return {
-            "error": f"No se encontraron las carpetas 'Original' y 'Copy' en {ruta_carpeta}"
-        }
+    if not os.path.exists(ruta_sospechosos):
+        return {"error": f"The suspicious documents folder {ruta_sospechosos} does not exist"}
     
-    # Listar archivos originales y copias
-    archivos_originales = [f for f in os.listdir(ruta_original) if f.endswith('.txt')]
-    archivos_copia = [f for f in os.listdir(ruta_copy) if f.endswith('.txt')]
+    # Create output folder if it doesn't exist and none is specified
+    if ruta_carpeta_salida is None:
+        ruta_carpeta_salida = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resultados")
     
-    if not archivos_originales or not archivos_copia:
-        return {
-            "error": f"No se encontraron archivos .txt en las carpetas 'Original' o 'Copy'"
-        }
+    if not os.path.exists(ruta_carpeta_salida):
+        os.makedirs(ruta_carpeta_salida)
     
-    # Limitar el número de comparaciones seleccionando un subconjunto de archivos
-    if len(archivos_originales) * len(archivos_copia) > max_comparaciones:
-        # Seleccionar un número equilibrado de archivos
-        import random
-        random.shuffle(archivos_originales)
-        random.shuffle(archivos_copia)
+    # Get list of original and suspicious files
+    archivos_originales = [f for f in os.listdir(ruta_originales) if f.endswith('.txt')]
+    archivos_sospechosos = [f for f in os.listdir(ruta_sospechosos) if f.endswith('.txt')]
+    
+    # Check that there are files to compare
+    if not archivos_originales or not archivos_sospechosos:
+        return {"error": "Not enough files found to compare"}
+    
+    # Create file pairs to compare (by ID)
+    pares_archivos = []
+    for archivo_original in archivos_originales:
+        id_original = archivo_original.replace('source-document', '').replace('.txt', '')
+        archivo_sospechoso = f"suspicious-document{id_original}.txt"
         
-        # Calcular cuántos archivos de cada tipo necesitamos para acercarnos al máximo
-        from math import sqrt
-        n_originales = min(len(archivos_originales), int(sqrt(max_comparaciones)))
-        n_copias = min(len(archivos_copia), max_comparaciones // n_originales)
-        
-        archivos_originales_seleccionados = archivos_originales[:n_originales]
-        archivos_copia_seleccionados = archivos_copia[:n_copias]
-    else:
-        archivos_originales_seleccionados = archivos_originales
-        archivos_copia_seleccionados = archivos_copia
+        if archivo_sospechoso in archivos_sospechosos:
+            pares_archivos.append({
+                'original': os.path.join(ruta_originales, archivo_original),
+                'sospechoso': os.path.join(ruta_sospechosos, archivo_sospechoso)
+            })
     
-    total_comparaciones = len(archivos_originales_seleccionados) * len(archivos_copia_seleccionados)
-    print(f"Realizando {total_comparaciones} comparaciones (de un total posible de {len(archivos_originales) * len(archivos_copia)})")
+    # If there are no pairs to compare
+    if not pares_archivos:
+        return {"error": "No document pairs found to compare"}
     
-    # Procesar cada combinación de archivo original con archivos de copia
+    print(f"Found {len(pares_archivos)} document pairs to analyze")
+    
+    # Process file pairs
     resultados = []
+    for par in pares_archivos:
+        resultado = procesar_archivo(par['original'], par['sospechoso'])
+        resultados.append(resultado)
+        # Show progress
+        if len(resultados) % 10 == 0:
+            print(f"Processed {len(resultados)} of {len(pares_archivos)} documents")
     
-    # Determinar número óptimo de workers
-    max_workers = min(os.cpu_count(), 4)  # Limitar a 4 workers
-    
-    comparaciones_realizadas = 0
-    
-    try:
-        # Procesamiento de comparaciones
-        for archivo_original in archivos_originales_seleccionados:
-            ruta_completa_original = os.path.join(ruta_original, archivo_original)
-            
-            # Leer texto original
-            try:
-                with open(ruta_completa_original, 'r', encoding='utf-8') as f:
-                    texto_original = preprocess_text(f.read())
-            except Exception as e:
-                print(f"Error al leer el archivo original {archivo_original}: {e}")
-                continue
-            
-            # Procesar cada archivo de copia con este original
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                # Función para procesar una comparación
-                def procesar_comparacion(archivo_copia):
-                    ruta_completa_copia = os.path.join(ruta_copy, archivo_copia)
-                    
-                    try:
-                        with open(ruta_completa_copia, 'r', encoding='utf-8') as f:
-                            texto_copia = preprocess_text(f.read())
-                        
-                        # Calcular similitudes
-                        resultados_similitud = calcular_similitud_combinada(texto_original, texto_copia)
-                        
-                        # Preparar resultado
-                        resultado = {
-                            "original": archivo_original,
-                            "similar": archivo_copia,
-                            "similitud": resultados_similitud['cos_COMBINADO'],
-                            "nivel": resultados_similitud['pred_COMBINADO']
-                        }
-                        
-                        # Añadir todas las métricas calculadas
-                        resultado.update(resultados_similitud)
-                        
-                        return resultado
-                    
-                    except Exception as e:
-                        print(f"Error al procesar el archivo {archivo_copia}: {e}")
-                        return {
-                            "original": archivo_original,
-                            "similar": archivo_copia,
-                            "error": str(e)
-                        }
-                
-                # Enviar todas las comparaciones para procesamiento
-                futures = [executor.submit(procesar_comparacion, archivo_copia) for archivo_copia in archivos_copia_seleccionados]
-                
-                # Recolectar resultados
-                for future in futures:
-                    resultado = future.result()
-                    resultados.append(resultado)
-                    comparaciones_realizadas += 1
-                    
-                    # Mostrar progreso
-                    if comparaciones_realizadas % 5 == 0 or comparaciones_realizadas == total_comparaciones:
-                        print(f"Progreso: {comparaciones_realizadas}/{total_comparaciones} comparaciones ({(comparaciones_realizadas/total_comparaciones)*100:.1f}%)")
-    
-    except Exception as e:
-        # Fallback a procesamiento secuencial
-        print(f"Error en procesamiento paralelo: {e}. Usando procesamiento secuencial...")
-        for archivo_original in archivos_originales_seleccionados:
-            ruta_completa_original = os.path.join(ruta_original, archivo_original)
-            
-            try:
-                with open(ruta_completa_original, 'r', encoding='utf-8') as f:
-                    texto_original = preprocess_text(f.read())
-                    
-                for archivo_copia in archivos_copia_seleccionados:
-                    ruta_completa_copia = os.path.join(ruta_copy, archivo_copia)
-                    
-                    try:
-                        with open(ruta_completa_copia, 'r', encoding='utf-8') as f:
-                            texto_copia = preprocess_text(f.read())
-                        
-                        resultados_similitud = calcular_similitud_combinada(texto_original, texto_copia)
-                        
-                        resultado = {
-                            "original": archivo_original,
-                            "similar": archivo_copia,
-                            "similitud": resultados_similitud['cos_COMBINADO'],
-                            "nivel": resultados_similitud['pred_COMBINADO']
-                        }
-                        
-                        resultado.update(resultados_similitud)
-                        resultados.append(resultado)
-                        
-                        comparaciones_realizadas += 1
-                        if comparaciones_realizadas % 5 == 0 or comparaciones_realizadas == total_comparaciones:
-                            print(f"Progreso: {comparaciones_realizadas}/{total_comparaciones} comparaciones ({(comparaciones_realizadas/total_comparaciones)*100:.1f}%)")
-                    
-                    except Exception as e:
-                        print(f"Error al procesar el archivo {archivo_copia}: {e}")
-                        resultados.append({
-                            "original": archivo_original,
-                            "similar": archivo_copia,
-                            "error": str(e)
-                        })
-            
-            except Exception as e:
-                print(f"Error al leer el archivo original {archivo_original}: {e}")
-                continue
-    
-    # Crear DataFrame con resultados
+    # Create DataFrame with results
     try:
         df_resultados = pd.DataFrame(resultados)
         
-        # Guardar resultados a CSV
-        ruta_salida = os.path.join(ruta_carpeta, "resultados_similitud.csv")
+        # Evaluate results
+        metricas = evaluar_resultados(df_resultados)
+        
+        # Save results to CSV
+        ruta_salida = os.path.join(ruta_carpeta_salida, "resultados_similitud.csv")
         df_resultados.to_csv(ruta_salida, index=False)
+        
+        # Custom class to encode NumPy types to JSON
+        class NumpyEncoder(JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.floating):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, (np.bool_, bool)):
+                    return bool(obj)
+                return super(NumpyEncoder, self).default(obj)
+        
+        # Save metrics using custom encoder
+        ruta_metricas = os.path.join(ruta_carpeta_salida, "metricas_similitud.json")
+        with open(ruta_metricas, 'w', encoding='utf-8') as f:
+            json.dump(metricas, f, indent=4, cls=NumpyEncoder)
         
         tiempo_total = time.time() - tiempo_inicio
         
-        # Crear visualizaciones para datos no etiquetados
-        crear_visualizaciones_no_etiquetadas(df_resultados, ruta_carpeta)
-        
-        # Realizar análisis de clustering si hay suficientes datos
-        if len(df_resultados) >= 10:
-            realizar_clustering(df_resultados, ruta_carpeta)
+        # Create visual results
+        crear_visualizaciones(df_resultados, ruta_carpeta_salida)
         
         return {
             "tiempo_ejecucion": tiempo_total,
             "total_documentos": len(resultados),
+            "metricas": metricas,
             "ruta_resultados": ruta_salida,
-            "archivos_procesados": [f"{o} vs {c}" for o in archivos_originales_seleccionados for c in archivos_copia_seleccionados],
+            "ruta_metricas": ruta_metricas,
             "df_resultados": df_resultados,
         }
         
     except Exception as e:
         return {
-            "error": f"Error al crear resultados: {e}",
+            "error": f"Error creating results: {e}",
             "resultados_parciales": resultados
         }
-        
-# Actualizar la función crear_visualizaciones para manejar el nuevo formato de datos
-def crear_visualizaciones(df_resultados, ruta_carpeta):
-    """Crea visualizaciones de resultados."""
-    try:
-        # 1. Gráfico de comparación de similitudes por método
-        plt.figure(figsize=(14, 8))
-        
-        metodos = ['BOW', 'TFIDF', 'SEMANTICO', 'NGRAMA_PALABRA', 'NGRAMA_CARACTER', 'MARKOV', 'COMBINADO']
-        colores = ['blue', 'green', 'red', 'purple', 'orange', 'brown', 'black']
-        
-        # Crear un identificador único para cada comparación
-        df_resultados['id_comparacion'] = df_resultados.apply(lambda row: f"{row['original']} vs {row['similar']}", axis=1)
-        
-        for i, metodo in enumerate(metodos):
-            col = f"cos_{metodo}"
-            if col in df_resultados.columns:
-                plt.scatter(
-                    range(len(df_resultados)), 
-                    df_resultados[col],
-                    alpha=0.7,
-                    label=metodo,
-                    color=colores[i % len(colores)]
-                )
-        
-        plt.title('Comparación de Similitudes por Método')
-        plt.xlabel('Comparación (Documento Original vs Copia)')
-        plt.ylabel('Puntuación de Similitud')
-        plt.xticks([])  # Ocultar etiquetas del eje x porque pueden ser muchas
-        plt.grid(True, alpha=0.3)
-        plt.legend()
-        plt.tight_layout()
-        
-        ruta_comparacion = os.path.join(ruta_carpeta, 'grafico_comparacion_metodos.png')
-        plt.savefig(ruta_comparacion)
-        plt.close()
-        
-        # 2. Matriz de confusión para método combinado (solo si hay etiquetas válidas)
-        if ('pred_COMBINADO' in df_resultados.columns and 
-            'precargado' in df_resultados.columns and 
-            df_resultados['precargado'].nunique() > 1):
-            
-            etiquetas = sorted(df_resultados['precargado'].unique())
-            
-            # Filtrar filas con precargado desconocido
-            df_filtrado = df_resultados[df_resultados['precargado'] != 'unknown']
-            
-            if not df_filtrado.empty:
-                cm = confusion_matrix(
-                    df_filtrado['precargado'], 
-                    df_filtrado['pred_COMBINADO'],
-                    labels=etiquetas
-                )
-                
-                plt.figure(figsize=(8, 6))
-                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                           xticklabels=etiquetas,
-                           yticklabels=etiquetas)
-                plt.title('Matriz de Confusión - Método Combinado')
-                plt.xlabel('Predicción')
-                plt.ylabel('Real')
-                plt.tight_layout()
-                
-                ruta_matriz = os.path.join(ruta_carpeta, 'matriz_confusion_combinado.png')
-                plt.savefig(ruta_matriz)
-                plt.close()
-        
-    except Exception as e:
-        print(f"Error al crear visualizaciones: {e}")
 
-# Función para comparar dos textos directamente
-def comparar_textos(texto1, texto2):
-    """Compara dos textos directamente y devuelve la similitud."""
-    texto1_procesado = preprocess_text(texto1)
-    texto2_procesado = preprocess_text(texto2)
-    
-    resultados = calcular_similitud_combinada(texto1_procesado, texto2_procesado)
-    
-    # Filtrar solo los resultados relevantes
-    resultados_filtrados = {
-        'similitud_bow': resultados['cos_BOW'],
-        'similitud_tfidf': resultados['cos_TFIDF'],
-        'similitud_semantica': resultados['cos_SEMANTICO'],
-        'similitud_ngrama_palabra': resultados['cos_NGRAMA_PALABRA'],
-        'similitud_ngrama_caracter': resultados['cos_NGRAMA_CARACTER'],
-        'similitud_markov': resultados['cos_MARKOV'],
-        'similitud_estilo': resultados['cos_ESTILO'],
-        'similitud_combinada': resultados['cos_COMBINADO'],
-        'nivel_similitud': resultados['pred_COMBINADO']
-    }
-    
-    return resultados_filtrados
-
-# Función para guardar configuración
-def guardar_configuracion(config):
-    """Guarda la configuración actual a un archivo."""
-    try:
-        # Crear directorio si no existe
-        if not os.path.exists('config'):
-            os.makedirs('config')
-        
-        # Guardar configuración
-        with open('config/config.json', 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=4)
-        
-        # Actualizar configuración global
-        global CONFIG
-        CONFIG = config
-        
-        return True
-    except Exception as e:
-        print(f"Error al guardar configuración: {e}")
-        return False
-
-# Función para cargar configuración
-def cargar_configuracion():
-    """Carga la configuración desde un archivo."""
-    try:
-        # Verificar si existe el archivo
-        if os.path.exists('config/config.json'):
-            with open('config/config.json', 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                
-            # Verificar y actualizar etiquetas antiguas si es necesario
-            if 'umbrales' in config:
-                # Convertir de formato antiguo a nuevo si es necesario
-                if 'alto' in config['umbrales'] and 'plagio' not in config['umbrales']:
-                    config['umbrales']['plagio'] = config['umbrales'].pop('alto')
-                if 'medio' in config['umbrales'] and 'sospechoso' not in config['umbrales']:
-                    config['umbrales']['sospechoso'] = config['umbrales'].pop('medio')
-            
-            return config
-        else:
-            return CONFIG
-    except Exception as e:
-        print(f"Error al cargar configuración: {e}")
-        return CONFIG
-
-# Inicializar configuración al cargar el módulo
-CONFIG = cargar_configuracion()
-
-# Punto de entrada si se ejecuta como script
 if __name__ == "__main__":
-    print("Detector de Plagio - Sistema de Análisis de Similitud Textual")
-    print("Para usar la interfaz de usuario, ejecute el archivo 'app.py'")
+    # Run analysis with the new folder structure
+    print("Starting analysis...")
+    resultado = ejecutar_analisis_embeddings(
+        ruta_carpeta_salida="./resultados"
+    )
+    
+    # Show results
+    if "error" in resultado:
+        print(f"Error: {resultado['error']}")
+    else:
+        print(f"Analysis completed in {resultado['tiempo_ejecucion']:.2f} seconds")
+        print(f"Total documents analyzed: {resultado['total_documentos']}")
+        print(f"Classification distribution:")
+        for clasificacion, cantidad in resultado['metricas']['distribucion'].items():
+            porcentaje = resultado['metricas']['porcentajes'][clasificacion] * 100
+            print(f"  - {clasificacion}: {cantidad} documents ({porcentaje:.2f}%)")
+        print(f"Results saved to: {resultado['ruta_resultados']}")
+        print(f"Metrics saved to: {resultado['ruta_metricas']}")
+        print("\nVisualizations generated in the results folder.")

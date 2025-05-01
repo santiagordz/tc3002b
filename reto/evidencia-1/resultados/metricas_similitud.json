@@ -7,11 +7,28 @@
         "similitud_std": 0.1388772626234911
     },
     "distribucion": {
-        "original": 98,
-        "plagio": 2
+        "original": 57,
+        "plagio": 43
     },
     "porcentajes": {
-        "original": 0.98,
-        "plagio": 0.02
+        "original": 0.57,
+        "plagio": 0.43
+    },
+    "silhouette_coefficient": 0.26514666833079653,
+    "cluster_purity": 0.62,
+    "information_gain": 0.12340988873374892,
+    "analisis_por_clase": {
+        "original": {
+            "count": 57,
+            "similitud_media": 0.36642971948573466,
+            "similitud_mediana": 0.38732776045799255,
+            "similitud_std": 0.10257912937937815
+        },
+        "plagio": {
+            "count": 43,
+            "similitud_media": 0.5840077206145885,
+            "similitud_mediana": 0.5706703066825867,
+            "similitud_std": 0.06168965808785341
+        }
     }
 }
