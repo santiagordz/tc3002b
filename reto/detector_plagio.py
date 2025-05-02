@@ -33,12 +33,12 @@ CONFIG = {
     },
     # Weights for different similarity methods
     'pesos': {
-        'bow': 0.15,
-        'tfidf': 0.20,
-        'semantico': 0.25,
+        'bow': 0.25,
+        'tfidf': 0.25,
+        'semantico': 0.10,
         'ngrama_palabra': 0.15,
-        'ngrama_caracter': 0.20,
-        'markov': 0.05
+        'ngrama_caracter': 0.10,
+        'markov': 0.15
     },
     # Folder paths
     'rutas': {
@@ -96,18 +96,18 @@ def cargar_modelo_embeddings():
         
         try:
             # Try to use previously downloaded model
-            if os.path.exists('./modelos'):
+            if os.path.exists('./modelos/nnlm'):
                 print("Loading embeddings model from local folder...")
                 EMBEDDINGS_MODEL = hub.load('./modelos/use_model')
             else:
                 print("Model not found. Downloading...")
                 # Download and save model
-                EMBEDDINGS_MODEL = hub.load("https://tfhub.dev/google/universal-sentence-encoder/4")
+                EMBEDDINGS_MODEL = hub.load("https://tfhub.dev/google/nnlm-en-dim128/2")
                 # Create directory if it doesn't exist
                 if not os.path.exists('./modelos'):
                     os.makedirs('./modelos')
                 # Save for future use
-                tf.saved_model.save(EMBEDDINGS_MODEL, './modelos/use_model')
+                tf.saved_model.save(EMBEDDINGS_MODEL, './modelos/nnlm')
             
             print("Embeddings model loaded successfully.")
         except Exception as e:
@@ -354,7 +354,72 @@ def evaluar_resultados(df_resultados):
         # Calculate percentages
         total = sum(conteo_clasificaciones.values())
         metricas["porcentajes"] = {k: float(v/total) for k, v in conteo_clasificaciones.items()}
-    
+        
+        # Convertir clasificación a valores numéricos para clustering
+        mapping = {'original': 0, 'plagio': 1}
+        y_true = df_resultados["clasificacion"].map(mapping).values
+        
+        # Preparar datos para clustering
+        X = df_resultados[["similitud", "confianza"]].values
+        
+        try:
+            
+            # Silhouette Coefficient
+            silhouette_avg = silhouette_score(X, y_true)
+            metricas["silhouette_coefficient"] = float(silhouette_avg)
+            
+            # Aplicar K-means clustering (k=2 para original/plagio)
+            kmeans = KMeans(n_clusters=2, random_state=42)
+            y_pred = kmeans.fit_predict(X)
+            
+            # Calcular pureza de clusters
+            contingency_matrix = confusion_matrix(y_true, y_pred)
+            cluster_purity = np.sum(np.max(contingency_matrix, axis=0)) / np.sum(contingency_matrix)
+            metricas["cluster_purity"] = float(cluster_purity)
+            
+            # Calcular Information Gain / Entropía
+            base_entropy = entropy(df_resultados["clasificacion"].value_counts(normalize=True))
+            
+            # Entropía condicional por cluster
+            conditional_entropy = 0
+            for i in range(2):  # Para cada cluster
+                cluster_size = np.sum(y_pred == i)
+                if cluster_size > 0:
+                    cluster_probs = []
+                    for j in range(2):  # Para cada clase
+                        count = np.sum((y_pred == i) & (y_true == j))
+                        prob = count / cluster_size if cluster_size > 0 else 0
+                        if prob > 0:
+                            cluster_probs.append(prob)
+                    if cluster_probs:
+                        conditional_entropy += (cluster_size / len(y_pred)) * entropy(cluster_probs)
+            
+            # Information Gain
+            information_gain = base_entropy - conditional_entropy
+            metricas["information_gain"] = float(information_gain)
+            
+            # Métricas de evaluación binaria
+            precision, recall, f1, _ = precision_recall_fscore_support(
+                y_true, 
+                df_resultados["similitud"] >= CONFIG['similitud']['umbral_plagio'],
+                average='binary',
+                pos_label=1
+            )
+        
+        except Exception as e:
+            print(f"Error al calcular métricas avanzadas: {e}")
+            metricas["error_metricas_avanzadas"] = str(e)
+            
+        metricas["analisis_por_clase"] = {}
+        for clase in df_resultados["clasificacion"].unique():
+            df_clase = df_resultados[df_resultados["clasificacion"] == clase]
+            metricas["analisis_por_clase"][clase] = {
+                "count": int(len(df_clase)),
+                "similitud_media": float(df_clase["similitud"].mean()),
+                "similitud_mediana": float(df_clase["similitud"].median()),
+                "similitud_std": float(df_clase["similitud"].std())
+            }
+            
     # Statistics for each similarity method
     metodos = ['BOW', 'TFIDF', 'SEMANTICO', 'NGRAMA_PALABRA', 'NGRAMA_CARACTER', 'MARKOV']
     metricas["metodos"] = {}
@@ -399,32 +464,6 @@ def evaluar_resultados(df_resultados):
             most_important_feature = 'cos_TFIDF' if 'cos_TFIDF' in df_resultados.columns else 'cos_SEMANTICO'
             X_2d = df_resultados[['similitud', most_important_feature]].values
             
-            # Silhouette Coefficient - measures how well samples are clustered
-            try:
-                silhouette_avg = silhouette_score(X_2d, y_true)
-                metricas["silhouette_coefficient"] = float(silhouette_avg)
-                
-                if len(np.unique(y_pred_kmeans)) >= 2:
-                    silhouette_kmeans = silhouette_score(X_2d, y_pred_kmeans)
-                    metricas["silhouette_kmeans"] = float(silhouette_kmeans)
-            except:
-                pass
-            
-            # Davies-Bouldin Index - lower values indicate better clustering
-            try:
-                db_index = davies_bouldin_score(X_2d, y_true)
-                metricas["davies_bouldin_index"] = float(db_index)
-            except:
-                pass
-            
-            # Calinski-Harabasz Index - higher values indicate better clustering
-            try:
-                ch_index = calinski_harabasz_score(X_2d, y_true)
-                metricas["calinski_harabasz_index"] = float(ch_index)
-            except:
-                pass
-            
-            # Confusion matrix for K-means vs true labels
             conf_matrix = confusion_matrix(y_true, y_pred_kmeans)
             # We may need to flip the clusters if kmeans assigned different label numbers
             if np.sum(conf_matrix.diagonal()) < np.sum(conf_matrix - np.diag(conf_matrix.diagonal())):
@@ -464,17 +503,6 @@ def evaluar_resultados(df_resultados):
             centroid_diff = np.abs(kmeans.cluster_centers_[0] - kmeans.cluster_centers_[1])
             feature_importance = dict(zip(feature_names, centroid_diff / np.sum(centroid_diff)))
             metricas["feature_importance"] = {k: float(v) for k, v in feature_importance.items()}
-            
-            # Inter-cluster vs intra-cluster distance ratio
-            intra_cluster_dist = np.mean([
-                np.mean([np.linalg.norm(X[i] - kmeans.cluster_centers_[y_pred_kmeans[i]]) 
-                        for i in range(len(X)) if y_pred_kmeans[i] == c])
-                for c in range(2)
-            ])
-            
-            inter_cluster_dist = np.linalg.norm(kmeans.cluster_centers_[0] - kmeans.cluster_centers_[1])
-            
-            metricas["inter_intra_ratio"] = float(inter_cluster_dist / intra_cluster_dist) if intra_cluster_dist > 0 else 0.0
             
         except Exception as e:
             print(f"Error calculating advanced clustering metrics: {e}")

@@ -1,18 +1,35 @@
 {
     "estadisticas": {
-        "similitud_media": 0.659493563354496,
-        "similitud_mediana": 0.7056277487840249,
-        "similitud_min": 0.12404762017629686,
-        "similitud_max": 0.8681579445606556,
-        "similitud_std": 0.178993101535451
+        "similitud_media": 0.7158714767538811,
+        "similitud_mediana": 0.7684467824968455,
+        "similitud_min": 0.1308881948118392,
+        "similitud_max": 0.9149864852726859,
+        "similitud_std": 0.18915111489127273
     },
     "distribucion": {
-        "plagio": 52,
-        "original": 48
+        "plagio": 59,
+        "original": 41
     },
     "porcentajes": {
-        "plagio": 0.52,
-        "original": 0.48
+        "plagio": 0.59,
+        "original": 0.41
+    },
+    "silhouette_coefficient": 0.2632298651934463,
+    "cluster_purity": 0.69,
+    "information_gain": 0.09731296873248207,
+    "analisis_por_clase": {
+        "original": {
+            "count": 41,
+            "similitud_media": 0.5729843353457506,
+            "similitud_mediana": 0.6928976996389972,
+            "similitud_std": 0.224404216740403
+        },
+        "plagio": {
+            "count": 59,
+            "similitud_media": 0.8151659309527515,
+            "similitud_mediana": 0.8109382201726409,
+            "similitud_std": 0.043342284590794915
+        }
     },
     "metodos": {
         "BOW": {
@@ -62,44 +79,25 @@
         "dbscan_num_clusters": 2,
         "dbscan_noise_points": 2
     },
-    "silhouette_coefficient": 0.32815720157197004,
-    "silhouette_kmeans": 0.8581110740402907,
-    "davies_bouldin_index": 0.9596001539174825,
-    "calinski_harabasz_index": 46.030953614469816,
     "matriz_confusion_kmeans": {
         "verdadero_negativo": 10,
-        "falso_positivo": 38,
+        "falso_positivo": 31,
         "falso_negativo": 0,
-        "verdadero_positivo": 52
+        "verdadero_positivo": 59
     },
-    "clustering_accuracy": 0.62,
+    "clustering_accuracy": 0.69,
     "metricas_clustering": {
-        "precision": 0.5777777777777777,
+        "precision": 0.6555555555555556,
         "recall": 1.0,
-        "f1_score": 0.7323943661971831
+        "f1_score": 0.7919463087248322
     },
     "feature_importance": {
-        "similitud": 0.14745961325249146,
-        "cos_BOW": 0.21435463356079412,
-        "cos_TFIDF": 0.21732877227253103,
-        "cos_SEMANTICO": 0.07922843494950951,
-        "cos_NGRAMA_PALABRA": 0.10292929975792467,
-        "cos_NGRAMA_CARACTER": 0.16439465168308418,
-        "cos_MARKOV": 0.074304594523665
-    },
-    "inter_intra_ratio": 0.9942002179623035,
-    "analisis_por_clase": {
-        "original": {
-            "count": 48,
-            "similitud_media": 0.5439211490747776,
-            "similitud_mediana": 0.6386565419108193,
-            "similitud_std": 0.19799327803345138
-        },
-        "plagio": {
-            "count": 52,
-            "similitud_media": 0.7661757919203903,
-            "similitud_mediana": 0.7555542076963299,
-            "similitud_std": 0.04347623755713582
-        }
+        "similitud": 0.15707621963337612,
+        "cos_BOW": 0.21193672565998822,
+        "cos_TFIDF": 0.21487731625862982,
+        "cos_SEMANTICO": 0.07833474277383477,
+        "cos_NGRAMA_PALABRA": 0.10176826319447421,
+        "cos_NGRAMA_CARACTER": 0.16254028949575114,
+        "cos_MARKOV": 0.07346644298394568
     }
 }
