@@ -14,9 +14,8 @@
         "plagio": 0.59,
         "original": 0.41
     },
-    "silhouette_coefficient": 0.2632298651934463,
-    "cluster_purity": 0.69,
-    "information_gain": 0.09731296873248207,
+    "silhouette_coefficient": 0.4852218551033463,
+    "cluster_purity": 0.94,
     "analisis_por_clase": {
         "original": {
             "count": 41,

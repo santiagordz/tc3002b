@@ -33,12 +33,12 @@ CONFIG = {
     },
     # Weights for different similarity methods
     'pesos': {
-        'bow': 0.25,
-        'tfidf': 0.25,
-        'semantico': 0.10,
+        'bow': 0.15,
+        'tfidf': 0.20,
+        'semantico': 0.25,
         'ngrama_palabra': 0.15,
-        'ngrama_caracter': 0.10,
-        'markov': 0.15
+        'ngrama_caracter': 0.20,
+        'markov': 0.05
     },
     # Folder paths
     'rutas': {
